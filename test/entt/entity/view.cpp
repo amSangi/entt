@@ -7,8 +7,8 @@
 
 TEST(PersistentView, Functionalities) {
     entt::registry<> registry;
-    auto view = registry.persistent_view<int, char>();
-    auto cview = std::as_const(registry).persistent_view<const int, const char>();
+    auto view = registry.view<int, char>(entt::group_policy);
+    auto cview = std::as_const(registry).view<const int, const char>(entt::group_policy);
 
     ASSERT_TRUE(view.empty());
 
@@ -57,8 +57,8 @@ TEST(PersistentView, Functionalities) {
 
 TEST(PersistentView, ElementAccess) {
     entt::registry<> registry;
-    auto view = registry.persistent_view<int, char>();
-    auto cview = std::as_const(registry).persistent_view<const int, const char>();
+    auto view = registry.view<int, char>(entt::group_policy);
+    auto cview = std::as_const(registry).view<const int, const char>(entt::group_policy);
 
     const auto e0 = registry.create();
     registry.assign<int>(e0);
@@ -76,7 +76,7 @@ TEST(PersistentView, ElementAccess) {
 
 TEST(PersistentView, Contains) {
     entt::registry<> registry;
-    auto view = registry.persistent_view<int, char>();
+    auto view = registry.view<int, char>(entt::group_policy);
 
     const auto e0 = registry.create();
     registry.assign<int>(e0);
@@ -104,12 +104,12 @@ TEST(PersistentView, Empty) {
     registry.assign<char>(e1);
     registry.assign<float>(e1);
 
-    for(auto entity: registry.persistent_view<char, int, float>()) {
+    for(auto entity: registry.view<char, int, float>(entt::group_policy)) {
         (void)entity;
         FAIL();
     }
 
-    for(auto entity: registry.persistent_view<double, char, int, float>()) {
+    for(auto entity: registry.view<double, char, int, float>(entt::group_policy)) {
         (void)entity;
         FAIL();
     }
@@ -117,7 +117,7 @@ TEST(PersistentView, Empty) {
 
 TEST(PersistentView, Each) {
     entt::registry<> registry;
-    auto view = registry.persistent_view<int, char>();
+    auto view = registry.view<int, char>(entt::group_policy);
 
     const auto e0 = registry.create();
     registry.assign<int>(e0);
@@ -127,7 +127,7 @@ TEST(PersistentView, Each) {
     registry.assign<int>(e1);
     registry.assign<char>(e1);
 
-    auto cview = std::as_const(registry).persistent_view<const int, const char>();
+    auto cview = std::as_const(registry).view<const int, const char>(entt::group_policy);
     std::size_t cnt = 0;
 
     view.each([&cnt](auto, int &, char &) { ++cnt; });
@@ -143,7 +143,7 @@ TEST(PersistentView, Each) {
 
 TEST(PersistentView, Sort) {
     entt::registry<> registry;
-    auto view = registry.persistent_view<const int, unsigned int>();
+    auto view = registry.view<const int, unsigned int>(entt::group_policy);
 
     const auto e0 = registry.create();
     const auto e1 = registry.create();
@@ -176,7 +176,7 @@ TEST(PersistentView, Sort) {
 
 TEST(PersistentView, IndexRebuiltOnDestroy) {
     entt::registry<> registry;
-    auto view = registry.persistent_view<int, unsigned int>();
+    auto view = registry.view<int, unsigned int>(entt::group_policy);
 
     const auto e0 = registry.create();
     const auto e1 = registry.create();
@@ -204,7 +204,7 @@ TEST(PersistentView, IndexRebuiltOnDestroy) {
 
 TEST(PersistentView, ConstNonConstAndAllInBetween) {
     entt::registry<> registry;
-    auto view = registry.persistent_view<int, const char>();
+    auto view = registry.view<int, const char>(entt::group_policy);
 
     ASSERT_TRUE((std::is_same_v<decltype(view.get<int>(0)), int &>));
     ASSERT_TRUE((std::is_same_v<decltype(view.get<const int>(0)), const int &>));
@@ -220,7 +220,7 @@ TEST(PersistentView, ConstNonConstAndAllInBetween) {
 
 TEST(PersistentView, Find) {
     entt::registry<> registry;
-    auto view = registry.persistent_view<int, const char>();
+    auto view = registry.view<int, const char>(entt::group_policy);
 
     const auto e0 = registry.create();
     registry.assign<int>(e0);
@@ -265,7 +265,7 @@ TEST(PersistentView, Find) {
 
 TEST(PersistentView, SingleComponent) {
     entt::registry<> registry;
-    const auto view = registry.persistent_view<const int>();
+    const auto view = registry.view<const int>(entt::group_policy);
 
     registry.assign<int>(registry.create());
 
@@ -290,7 +290,7 @@ TEST(PersistentView, ExcludedComponents) {
     registry.assign<int>(e1, 1);
     registry.assign<char>(e1);
 
-    const auto view = registry.persistent_view<int>(entt::exclude<char>{});
+    const auto view = registry.view<int>(entt::exclude<char>, entt::group_policy);
 
     const auto e2 = registry.create();
     registry.assign<int>(e2, 2);
@@ -331,7 +331,7 @@ TEST(PersistentView, ExcludedComponents) {
 TEST(PersistentView, EmptyAndNonEmptyTypes) {
     struct empty_type {};
     entt::registry<> registry;
-    const auto view = registry.persistent_view<int, empty_type>();
+    const auto view = registry.view<int, empty_type>(entt::group_policy);
 
     const auto e0 = registry.create();
     registry.assign<empty_type>(e0);

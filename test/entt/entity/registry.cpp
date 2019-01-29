@@ -410,7 +410,7 @@ TEST(Registry, PersistentView) {
     registry.assign<int>(e2, 0);
     registry.assign<char>(e2, 'c');
 
-    auto view = registry.persistent_view<int, char>();
+    auto view = registry.view<int, char>(entt::group_policy);
     decltype(view)::size_type cnt{0};
     view.each([&cnt](auto...) { ++cnt; });
 
@@ -431,7 +431,7 @@ TEST(Registry, CleanStandardViewAfterReset) {
 
 TEST(Registry, CleanPersistentViewAfterReset) {
     entt::registry<> registry;
-    auto view = registry.persistent_view<int, char>();
+    auto view = registry.view<int, char>(entt::group_policy);
 
     const auto entity = registry.create();
     registry.assign<int>(entity, 0);
@@ -662,7 +662,7 @@ TEST(Registry, DestroyByComponents) {
 TEST(Registry, SignalsOnAccommodate) {
     entt::registry<> registry;
     const auto entity = registry.create();
-    const auto view = registry.persistent_view<int, char>();
+    const auto view = registry.view<int, char>(entt::group_policy);
 
     registry.assign<int>(entity);
     registry.assign_or_replace<char>(entity);
@@ -703,7 +703,7 @@ TEST(Registry, PersistentViewInterleaved) {
     registry.assign<int>(entity);
     registry.assign<char>(entity);
 
-    const auto view = registry.persistent_view<int, char>();
+    const auto view = registry.view<int, char>(entt::group_policy);
 
     entity = registry.create();
     registry.assign<int>(entity);
@@ -717,7 +717,7 @@ TEST(Registry, PersistentViewInterleaved) {
 
 TEST(Registry, PersistentViewSortInterleaved) {
     entt::registry<> registry;
-    const auto view = registry.persistent_view<int, char>();
+    const auto view = registry.view<int, char>(entt::group_policy);
 
     const auto e0 = registry.create();
     registry.assign<int>(e0, 0);

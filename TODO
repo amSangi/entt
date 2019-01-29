@@ -26,6 +26,14 @@
 
 Ready to go:
 * policy based views
-* preferred approach (hints): registry.view<A, B, C>(exclude<D>, policy<A, B>)?
-* previous model used for persistent views as default view, query as old fashioned views
-* is it enough to store a view as <direct set, length>?
+* update as_view to support policies + tests
+* update doc + update tests
+* support for split (policy<A,B>::split<B> policy induce and policy<A>::split<B> policy respect)
+  ie induce A, respect B/C
+     registry.view<A,B>(policy<A>::split<C>)
+     registry.view<A,B,C>(policy<A>::split<C>)
+     registry.view<A,B>(exclude<C>, policy<A>::split<C>)
+  ie induce A/C, respect B
+     registry.view<A,B>(policy<A,C>::split<C>)
+     registry.view<A,B,C>(policy<A,C>::split<C>)
+     registry.view<A,B>(exclude<C>, policy<A,C>::split<C>)
