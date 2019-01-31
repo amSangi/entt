@@ -46,9 +46,6 @@ class registry {
     using signal_type = sigh<void(registry &, const Entity)>;
     using traits_type = entt_traits<Entity>;
 
-    template<typename Component>
-    using pool_type = sparse_set<Entity, std::decay_t<Component>>;
-
     struct component_pool {
         std::unique_ptr<sparse_set<Entity>> pool;
         signal_type construction;
@@ -73,13 +70,13 @@ class registry {
     }
 
     template<typename Component>
-    inline const pool_type<Component> & pool(const sparse_set<Entity> &cpool) const ENTT_NOEXCEPT {
-        return static_cast<const pool_type<Component> &>(cpool);
+    inline const auto & pool(const sparse_set<Entity> &cpool) const ENTT_NOEXCEPT {
+        return static_cast<const sparse_set<Entity, std::decay_t<Component>> &>(cpool);
     }
 
     template<typename Component>
-    inline pool_type<Component> & pool(sparse_set<Entity> &cpool) ENTT_NOEXCEPT {
-        return const_cast<pool_type<Component> &>(std::as_const(*this).template pool<Component>(cpool));
+    inline auto & pool(sparse_set<Entity> &cpool) ENTT_NOEXCEPT {
+        return const_cast<sparse_set<Entity, std::decay_t<Component>> &>(std::as_const(*this).template pool<Component>(cpool));
     }
 
     template<typename Component>
@@ -91,7 +88,7 @@ class registry {
         }
 
         if(!pools[ctype].pool) {
-            pools[ctype].pool = std::make_unique<pool_type<Component>>();
+            pools[ctype].pool = std::make_unique<sparse_set<Entity, std::decay_t<Component>>>();
         }
 
         return pools[ctype];
