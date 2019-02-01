@@ -1211,7 +1211,7 @@ public:
         if(sizeof...(Component)) {
             static_assert(std::conjunction_v<std::is_copy_constructible<Component>...>);
             ((other.assure<Component>().pool = assure<Component>().pool->clone()), ...);
-            (assert(other.assure<Component>().pool), ...);
+            assert((other.assure<Component>().pool && ...));
         } else {
             for(auto pos = pools.size(); pos; --pos) {
                 auto &cpool = pools[pos-1];

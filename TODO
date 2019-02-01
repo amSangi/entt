@@ -25,7 +25,6 @@
 * allow user to use also uint32 for hashed strings type if possible
 
 Ready to go:
-* policy based views
-* preferred approach (hints): registry.view<A, B, C>(exclude<D>, policy<A, B>)?
-* previous model used for persistent views as default view, query as old fashioned views
-* is it enough to store a view as <direct set, length>?
+* docs: no more persistent, review everything
+* tests: no more persistent, review everything
+* investigate if tracking indexes for free components is worth it
