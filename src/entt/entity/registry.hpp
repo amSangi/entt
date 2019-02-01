@@ -21,12 +21,29 @@
 #include "../signal/sigh.hpp"
 #include "entity.hpp"
 #include "entt_traits.hpp"
+#include "group.hpp"
 #include "snapshot.hpp"
 #include "sparse_set.hpp"
 #include "view.hpp"
 
 
 namespace entt {
+
+
+/**
+ * @brief Alias for exclusion lists.
+ * @tparam Type List of types.
+ */
+template<typename... Type>
+using exclude_t = type_list<Type...>;
+
+
+/**
+ * @brief Variable template for exclusion lists.
+ * @tparam Type List of types.
+ */
+template<typename... Type>
+constexpr exclude_t<Type...> exclude{};
 
 
 /**
@@ -50,8 +67,27 @@ class registry {
         std::unique_ptr<sparse_set<Entity>> pool;
         signal_type construction;
         signal_type destruction;
-        bool has_policy;
+        bool owned;
+        typename sparse_set<Entity>::size_type last;
     };
+
+    template<auto Has, auto Any, typename... Owned>
+    static void induce_if(registry &reg, const Entity entity) {
+        if((reg.*Has)(entity) && !(reg.*Any)(entity)) {
+            // TODO reduce calls to assure
+            (std::swap(reg.pool<Owned>(*reg.assure<Owned>().pool).get(entity), reg.pool<Owned>(*reg.assure<Owned>().pool).raw()[reg.assure<Owned>().last]), ...);
+            (reg.assure<Owned>().pool->swap(reg.assure<Owned>().pool->get(entity), reg.assure<Owned>().last++), ...);
+        }
+    }
+
+    template<auto Has, auto Any, typename... Owned>
+    static void discard_if(registry &reg, const Entity entity) {
+        // TODO reduce calls to assure
+        if((reg.*Has)(entity) && !(reg.*Any)(entity)) {
+            (std::swap(reg.pool<Owned>(*reg.assure<Owned>().pool).get(entity), reg.pool<Owned>(*reg.assure<Owned>().pool).raw()[--reg.assure<Owned>().last]), ...);
+            (reg.assure<Owned>().pool->swap(reg.assure<Owned>().pool->get(entity), reg.assure<Owned>().last), ...);
+        }
+    }
 
     template<typename Type, auto Has, auto Any>
     static void construct_if(registry &reg, const Entity entity) {
@@ -89,6 +125,8 @@ class registry {
 
         if(!pools[ctype].pool) {
             pools[ctype].pool = std::make_unique<sparse_set<Entity, std::decay_t<Component>>>();
+            pools[ctype].owned = false;
+            pools[ctype].last = {};
         }
 
         return pools[ctype];
@@ -106,7 +144,7 @@ public:
     /*! @brief Underlying version type. */
     using version_type = typename traits_type::version_type;
     /*! @brief Unsigned integer type. */
-    using size_type = std::size_t;
+    using size_type = typename sparse_set<Entity>::size_type;
     /*! @brief Unsigned integer type. */
     using component_type = typename component_family::family_type;
     /*! @brief Type of sink for the given component. */
@@ -834,6 +872,7 @@ public:
      */
     template<typename Component, typename Compare, typename Sort = std_sort, typename... Args>
     void sort(Compare compare, Sort sort = Sort{}, Args &&... args) {
+        assert(!assure<Component>().owned);
         pool<Component>(*assure<Component>().pool).sort(std::move(compare), std::move(sort), std::forward<Args>(args)...);
     }
 
@@ -869,6 +908,7 @@ public:
      */
     template<typename To, typename From>
     void sort() {
+        assert(!assure<To>().owned);
         assure<To>().pool->respect(*assure<From>().pool);
     }
 
@@ -911,6 +951,7 @@ public:
 
         if(cpool.destruction.empty()) {
             cpool.pool->reset();
+            cpool.last = {};
         } else {
             for(const auto entity: *cpool.pool) {
                 cpool.destruction.publish(*this, entity);
@@ -1067,6 +1108,11 @@ public:
         return const_cast<registry *>(this)->view<Component...>();
     }
 
+    template<typename Component>
+    bool has_group() const ENTT_NOEXCEPT {
+        return assure<Component>().owned;
+    }
+
     /**
      * @brief Returns a persistent view for the given components.
      *
@@ -1104,42 +1150,68 @@ public:
      * @tparam Exclude Types of components used to filter the view.
      * @return A newly created persistent view.
      */
-    template<typename... Component, typename... Exclude>
-    entt::persistent_view<Entity, Component...> persistent_view(type_list<Exclude...> = {}) {
-        using handler_type = type_list<Component..., type_list<Exclude...>>;
-        const auto htype = handler_family::type<handler_type>;
+    template<typename... Owned, typename... Get, typename... Exclude>
+    entt::group<Entity, get_t<Get...>, Owned...> group(get_t<Get...>, exclude_t<Exclude...> = {}) {
+        if constexpr(sizeof...(Owned)) {
+            assert(!(assure<Owned>().owned || ...));
+            // TODO reduce calls to assure
+            ((assure<Owned>().owned = true), ...);
 
-        if(!(htype < handlers.size())) {
-            handlers.resize(htype + 1);
-        }
+            (assure<Owned>().construction.sink().template connect<&induce_if<&registry::has<Owned..., Get...>, &registry::any_of<Exclude...>, Owned...>>(), ...);
+            (assure<Get>().construction.sink().template connect<&induce_if<&registry::has<Owned..., Get...>, &registry::any_of<Exclude...>, Owned...>>(), ...);
 
-        if(!handlers[htype]) {
-            (assure<Component>(), ...);
-            (assure<Exclude>(), ...);
+            (assure<Owned>().destruction.sink().template connect<&discard_if<&registry::has<Owned..., Get...>, &registry::any_of<Exclude...>, Owned...>>(), ...);
+            (assure<Get>().destruction.sink().template connect<&discard_if<&registry::has<Owned..., Get...>, &registry::any_of<Exclude...>, Owned...>>(), ...);
 
-            handlers[htype] = std::make_unique<sparse_set<entity_type>>();
-            auto *direct = handlers[htype].get();
+            (assure<Exclude>().construction.sink().template connect<&discard_if<&registry::has<Owned..., Get...>, &registry::any_of<Exclude...>, Owned...>>(), ...);
+            (assure<Exclude>().destruction.sink().template connect<&induce_if<&registry::has<Owned..., Get...>, &registry::any_of<Exclude...>, Owned...>>(), ...);
 
-            ((assure<Component>().construction.sink().template connect<&construct_if<handler_type, &registry::has<Component...>, &registry::any_of<Exclude...>>>()), ...);
-            ((assure<Exclude>().destruction.sink().template connect<&construct_if<handler_type, &registry::has<Component...>, &registry::any_of<Exclude...>>>()), ...);
-            ((assure<Exclude>().construction.sink().template connect<&registry::destroy_if<handler_type>>()), ...);
-            ((assure<Component>().destruction.sink().template connect<&registry::destroy_if<handler_type>>()), ...);
+            const auto *cpool = std::min({ assure<Owned>().pool.get()... }, [](const auto *lhs, const auto *rhs) {
+                return lhs->size() < rhs->size();
+            });
 
-            for(const auto entity: view<Component...>()) {
-                if(!any_of<Exclude...>(entity)) {
-                    direct->construct(entity);
+            std::for_each(cpool->data(), cpool->data() + cpool->size(), [this](const auto entity) {
+                if(has<Owned..., Get...>(entity) && !any_of<Exclude...>(entity)) {
+                    (std::swap(pool<Owned>(*assure<Owned>().pool).get(entity), pool<Owned>(*assure<Owned>().pool).raw()[assure<Owned>().last]), ...);
+                    (assure<Owned>().pool->swap(assure<Owned>().pool->get(entity), assure<Owned>().last++), ...);
+                }
+            });
+
+            using direct_type = std::tuple_element_t<0, std::tuple<Owned...>>;
+            return { &assure<direct_type>().last, &pool<Owned>(*assure<Owned>().pool)..., &pool<Get>(*assure<Get>().pool)... };
+        } else {
+            using handler_type = type_list<Get..., type_list<Exclude...>>;
+            const auto htype = handler_family::type<handler_type>;
+
+            if(!(htype < handlers.size())) {
+                handlers.resize(htype + 1);
+            }
+
+            if(!handlers[htype]) {
+                handlers[htype] = std::make_unique<sparse_set<entity_type>>();
+                auto *direct = handlers[htype].get();
+
+                ((assure<Get>().construction.sink().template connect<&construct_if<handler_type, &registry::has<Get...>, &registry::any_of<Exclude...>>>()), ...);
+                ((assure<Exclude>().destruction.sink().template connect<&construct_if<handler_type, &registry::has<Get...>, &registry::any_of<Exclude...>>>()), ...);
+                ((assure<Exclude>().construction.sink().template connect<&registry::destroy_if<handler_type>>()), ...);
+                ((assure<Get>().destruction.sink().template connect<&registry::destroy_if<handler_type>>()), ...);
+
+                for(const auto entity: view<Get...>()) {
+                    if(!any_of<Exclude...>(entity)) {
+                        direct->construct(entity);
+                    }
                 }
             }
-        }
 
-        return { handlers[htype].get(), &pool<Component>(*assure<Component>().pool)... };
+            return { handlers[htype].get(), &pool<Get>(*assure<Get>().pool)... };
+        }
     }
 
-    /*! @copydoc persistent_view */
-    template<typename... Component, typename... Exclude>
-    inline entt::persistent_view<Entity, Component...> persistent_view(type_list<Exclude...> = {}) const {
-        static_assert(std::conjunction_v<std::is_const<Component>...>);
-        return const_cast<registry *>(this)->persistent_view<Component...>(type_list<Exclude...>{});
+    /*! @copydoc group */
+    template<typename... Owned, typename... Get, typename... Exclude>
+    inline entt::group<Entity, get_t<Get...>, Owned...> group(get_t<Get...>, exclude_t<Exclude...> = {}) const {
+        static_assert(std::conjunction_v<std::is_const<Owned>..., std::is_const<Get>...>);
+        return const_cast<registry *>(this)->group<Owned...>(entt::get<Get...>, exclude<Exclude...>);
     }
 
     /**

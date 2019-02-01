@@ -25,6 +25,10 @@
 * allow user to use also uint32 for hashed strings type if possible
 
 Ready to go:
-* docs: no more persistent, review everything
-* tests: no more persistent, review everything
+* docs: no more persistent, no more multi component views, added owning views, review everything
+* tests: no more persistent, no more multi component views, added owning views, review everything
+* create group.cpp for tests and use old stuff for persistent views + new tests for policies
 * investigate if tracking indexes for free components is worth it
+* look for TODOs around (ie helper.cpp) and add what's needed
+* ie registry::reset (and some others) should update data.last for components
+* add utility as_group
