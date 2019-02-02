@@ -263,23 +263,6 @@ TEST(PersistentView, Find) {
     ASSERT_EQ(view.find(e4), view.end());
 }
 
-TEST(PersistentView, SingleComponent) {
-    entt::registry<> registry;
-    const auto view = registry.group<>(entt::get<const int>);
-
-    registry.assign<int>(registry.create());
-
-    const auto entity = registry.create();
-    registry.assign<int>(entity);
-
-    registry.assign<int>(registry.create());
-
-    registry.destroy(entity);
-    registry.assign<int>(registry.create());
-
-    ASSERT_TRUE(std::equal(view.begin(), view.end(), registry.view<int>().begin()));
-}
-
 TEST(PersistentView, ExcludedComponents) {
     entt::registry<> registry;
 

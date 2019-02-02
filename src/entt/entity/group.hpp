@@ -2,18 +2,13 @@
 #define ENTT_ENTITY_GROUP_HPP
 
 
-#include <iterator>
 #include <cassert>
-#include <cstddef>
-#include <array>
 #include <tuple>
-#include <vector>
 #include <utility>
 #include <algorithm>
 #include <type_traits>
 #include "../config/config.h"
 #include "../core/type_traits.hpp"
-#include "entt_traits.hpp"
 #include "sparse_set.hpp"
 
 
@@ -27,25 +22,39 @@ template<typename>
 class registry;
 
 
+/**
+ * @brief Alias for lists of observed components.
+ * @tparam Type List of types.
+ */
 template<typename... Type>
 using get_t = type_list<Type...>;
 
 
+/**
+ * @brief Variable template for lists of observed components.
+ * @tparam Type List of types.
+ */
 template<typename... Type>
 constexpr get_t<Type...> get{};
 
 
+/**
+ * @brief Group.
+ *
+ * Primary template isn't defined on purpose. All the specializations give a
+ * compile-time error, but for a few reasonable cases.
+ */
 template<typename...>
 class group;
 
 
 /**
- * @brief Persistent view.
+ * @brief Detached group.
  *
- * A persistent view returns all the entities and only the entities that have
- * at least the given components. Moreover, it's guaranteed that the entity list
- * is tightly packed in memory for fast iterations.<br/>
- * In general, persistent views don't stay true to the order of any set of
+ * A detached group returns all the entities and only the entities that have at
+ * least the given components. Moreover, it's guaranteed that the entity list is
+ * tightly packed in memory for fast iterations.<br/>
+ * In general, detached groups don't stay true to the order of any set of
  * components unless users explicitly sort them.
  *
  * @b Important
@@ -61,30 +70,26 @@ class group;
  * behavior.
  *
  * @note
- * Views share references to the underlying data structures with the registry
+ * Groups share references to the underlying data structures of the registry
  * that generated them. Therefore any change to the entities and to the
  * components made by means of the registry are immediately reflected by all the
- * views.<br/>
- * Moreover, sorting a persistent view affects all the other views of the same
- * type (it means that users don't have to call `sort` on each view to sort all
+ * groups.<br/>
+ * Moreover, sorting a detached group affects all the other groups of the same
+ * type (it means that users don't have to call `sort` on each group to sort all
  * of them because they share the set of entities).
  *
  * @warning
- * Lifetime of a view must overcome the one of the registry that generated it.
- * In any other case, attempting to use a view results in undefined behavior.
- *
- * @sa view
- * @sa view<Entity, Component>
- * @sa runtime_view
+ * Lifetime of a group must overcome the one of the registry that generated it.
+ * In any other case, attempting to use a group results in undefined behavior.
  *
  * @tparam Entity A valid entity type (see entt_traits for more details).
- * @tparam Get Types of components iterated by the view.
+ * @tparam Get Types of components iterated by the group.
  */
 template<typename Entity, typename... Get>
 class group<Entity, get_t<Get...>> {
     static_assert(sizeof...(Get));
 
-    /*! @brief A registry is allowed to create views. */
+    /*! @brief A registry is allowed to create groups. */
     friend class registry<Entity>;
 
     template<typename Component>
@@ -109,9 +114,9 @@ public:
     /*! @brief Default move constructor. */
     group(group &&) = default;
 
-    /*! @brief Default copy assignment operator. @return This view. */
+    /*! @brief Default copy assignment operator. @return This group. */
     group & operator=(const group &) = default;
-    /*! @brief Default move assignment operator. @return This view. */
+    /*! @brief Default move assignment operator. @return This group. */
     group & operator=(group &&) = default;
 
     /**
@@ -123,8 +128,8 @@ public:
     }
 
     /**
-     * @brief Checks whether the view is empty.
-     * @return True if the view is empty, false otherwise.
+     * @brief Checks whether the group is empty.
+     * @return True if the group is empty, false otherwise.
      */
     bool empty() const ENTT_NOEXCEPT {
         return handler->empty();
@@ -138,7 +143,7 @@ public:
      *
      * @note
      * There are no guarantees on the order of the entities. Use `begin` and
-     * `end` if you want to iterate the view in the expected order.
+     * `end` if you want to iterate the group in the expected order.
      *
      * @return A pointer to the array of entities.
      */
@@ -151,7 +156,7 @@ public:
      * components.
      *
      * The returned iterator points to the first entity that has the given
-     * components. If the view is empty, the returned iterator will be equal to
+     * components. If the group is empty, the returned iterator will be equal to
      * `end()`.
      *
      * @note
@@ -204,9 +209,9 @@ public:
     }
 
     /**
-     * @brief Checks if a view contains an entity.
+     * @brief Checks if a group contains an entity.
      * @param entity A valid entity identifier.
-     * @return True if the view contains the given entity, false otherwise.
+     * @return True if the group contains the given entity, false otherwise.
      */
     bool contains(const entity_type entity) const ENTT_NOEXCEPT {
         return find(entity) != end();
@@ -220,10 +225,10 @@ public:
      *
      * @warning
      * Attempting to use an invalid component type results in a compilation
-     * error. Attempting to use an entity that doesn't belong to the view
+     * error. Attempting to use an entity that doesn't belong to the group
      * results in undefined behavior.<br/>
      * An assertion will abort the execution at runtime in debug mode if the
-     * view doesn't contain the given entity.
+     * group doesn't contain the given entity.
      *
      * @tparam Component Types of components to get.
      * @param entity A valid entity identifier.
@@ -253,8 +258,8 @@ public:
      * forms:
      *
      * @code{.cpp}
-     * void(const entity_type, Component &...);
-     * void(Component &...);
+     * void(const entity_type, Get &...);
+     * void(Get &...);
      * @endcode
      *
      * @tparam Func Type of the function object to invoke.
@@ -276,8 +281,8 @@ public:
     /**
      * @brief Sort the shared pool of entities according to the given component.
      *
-     * Persistent views of the same type share with the registry a pool of
-     * entities with its own order that doesn't depend on the order of any pool
+     * Detached groups of the same type share with the registry a pool of
+     * entities with  its own order that doesn't depend on the order of any pool
      * of components. Users can order the underlying data structure so that it
      * respects the order of the pool of the given component.
      *
@@ -285,7 +290,7 @@ public:
      * The shared pool of entities and thus its order is affected by the changes
      * to each and every pool that it tracks. Therefore changes to those pools
      * can quickly ruin the order imposed to the pool of entities shared between
-     * the persistent views.
+     * the detached groups.
      *
      * @tparam Component Type of component to use to impose the order.
      */
@@ -301,11 +306,52 @@ private:
 
 
 /**
- * TODO
+ * @brief Owning group.
+ *
+ * Owning groups return all the entities and only the entities that have at
+ * least the given components. Moreover:
+ *
+ * * It's guaranteed that the entity list is tightly packed in memory for fast
+ *   iterations.
+ * * It's guaranteed that the lists of owned components are tightly packed in
+ *   memory for even faster iterations and to allow direct access.
+ * * They stay true to the order of the owned components and all the owned
+ *   components have the same order in memory.
+ *
+ * The more types of components are owned by a group, the faster it is to
+ * iterate them.
+ *
+ * @b Important
+ *
+ * Iterators aren't invalidated if:
+ *
+ * * New instances of the given components are created and assigned to entities.
+ * * The entity currently pointed is modified (as an example, if one of the
+ *   given components is removed from the entity to which the iterator points).
+ *
+ * In all the other cases, modifying the pools of the given components in any
+ * way invalidates all the iterators and using them results in undefined
+ * behavior.
+ *
+ * @note
+ * Groups share references to the underlying data structures of the registry
+ * that generated them. Therefore any change to the entities and to the
+ * components made by means of the registry are immediately reflected by all the
+ * groups.
+ *
+ * @warning
+ * Lifetime of a group must overcome the one of the registry that generated it.
+ * In any other case, attempting to use a group results in undefined behavior.
+ *
+ * @tparam Entity A valid entity type (see entt_traits for more details).
+ * @tparam Get Types of components observed by the group.
+ * @tparam Owned Types of components owned by the group.
  */
 template<typename Entity, typename... Get, typename... Owned>
 class group<Entity, get_t<Get...>, Owned...> {
-    /*! @brief A registry is allowed to create views. */
+    static_assert(sizeof...(Get) + sizeof...(Owned));
+
+    /*! @brief A registry is allowed to create groups. */
     friend class registry<Entity>;
 
     template<typename Component>
@@ -335,9 +381,9 @@ public:
     /*! @brief Default move constructor. */
     group(group &&) = default;
 
-    /*! @brief Default copy assignment operator. @return This view. */
+    /*! @brief Default copy assignment operator. @return This group. */
     group & operator=(const group &) = default;
-    /*! @brief Default move assignment operator. @return This view. */
+    /*! @brief Default move assignment operator. @return This group. */
     group & operator=(group &&) = default;
 
     /**
@@ -349,8 +395,8 @@ public:
     }
 
     /**
-     * @brief Checks whether the view is empty.
-     * @return True if the view is empty, false otherwise.
+     * @brief Checks whether the group is empty.
+     * @return True if the group is empty, false otherwise.
      */
     bool empty() const ENTT_NOEXCEPT {
         return *length;
@@ -363,8 +409,8 @@ public:
      * always a valid range, even if the container is empty.
      *
      * @note
-     * There are no guarantees on the order of the components. Use `begin` and
-     * `end` if you want to iterate the view in the expected order.
+     * There are no guarantees on the order of the components. Use `each` if you
+     * want to iterate the group in the expected order.
      *
      * @warning
      * Empty components aren't explicitly instantiated. Therefore, this function
@@ -399,7 +445,7 @@ public:
      * components.
      *
      * The returned iterator points to the first entity that has the given
-     * components. If the view is empty, the returned iterator will be equal to
+     * components. If the group is empty, the returned iterator will be equal to
      * `end()`.
      *
      * @note
@@ -452,9 +498,9 @@ public:
     }
 
     /**
-     * @brief Checks if a view contains an entity.
+     * @brief Checks if a group contains an entity.
      * @param entity A valid entity identifier.
-     * @return True if the view contains the given entity, false otherwise.
+     * @return True if the group contains the given entity, false otherwise.
      */
     bool contains(const entity_type entity) const ENTT_NOEXCEPT {
         return find(entity) != end();
@@ -468,10 +514,10 @@ public:
      *
      * @warning
      * Attempting to use an invalid component type results in a compilation
-     * error. Attempting to use an entity that doesn't belong to the view
+     * error. Attempting to use an entity that doesn't belong to the group
      * results in undefined behavior.<br/>
      * An assertion will abort the execution at runtime in debug mode if the
-     * view doesn't contain the given entity.
+     * group doesn't contain the given entity.
      *
      * @tparam Component Types of components to get.
      * @param entity A valid entity identifier.
@@ -502,8 +548,8 @@ public:
      * forms:
      *
      * @code{.cpp}
-     * void(const entity_type, Component &...);
-     * void(Component &...);
+     * void(const entity_type, Owned &..., Get &...);
+     * void(Owned &..., Get &...);
      * @endcode
      *
      * @tparam Func Type of the function object to invoke.

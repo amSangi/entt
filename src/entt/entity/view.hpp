@@ -4,7 +4,6 @@
 
 #include <iterator>
 #include <cassert>
-#include <cstddef>
 #include <array>
 #include <tuple>
 #include <vector>
@@ -52,17 +51,13 @@ class registry;
  * behavior.
  *
  * @note
- * Views share references to the underlying data structures with the registry
- * that generated them. Therefore any change to the entities and to the
- * components made by means of the registry are immediately reflected by views.
+ * Views share references to the underlying data structures of the registry that
+ * generated them. Therefore any change to the entities and to the components
+ * made by means of the registry are immediately reflected by views.
  *
  * @warning
  * Lifetime of a view must overcome the one of the registry that generated it.
  * In any other case, attempting to use a view results in undefined behavior.
- *
- * @sa view<Entity, Component>
- * @sa persistent_view
- * @sa runtime_view
  *
  * @tparam Entity A valid entity type (see entt_traits for more details).
  * @tparam Component Types of components iterated by the view.
@@ -100,7 +95,7 @@ class view {
             }
         }
 
-        template<std::size_t... Indexes>
+        template<auto... Indexes>
         extent_type min(std::index_sequence<Indexes...>) const ENTT_NOEXCEPT {
             return std::min({ std::get<Indexes>(unchecked)->extent()... });
         }
@@ -171,7 +166,7 @@ class view {
 
     unchecked_type unchecked(const sparse_set<Entity> *view) const ENTT_NOEXCEPT {
         unchecked_type other{};
-        std::size_t pos{};
+        typename unchecked_type::size_type pos{};
         ((std::get<pool_type<Component> *>(pools) == view ? nullptr : (other[pos++] = std::get<pool_type<Component> *>(pools))), ...);
         return other;
     }
@@ -185,7 +180,7 @@ class view {
         }
     }
 
-    template<typename Comp, typename Func, std::size_t... Indexes>
+    template<typename Comp, typename Func, auto... Indexes>
     void each(pool_type<Comp> *cpool, Func func, std::index_sequence<Indexes...>) const {
         const auto other = unchecked(cpool);
         std::array<underlying_iterator_type, sizeof...(Indexes)> data{{std::get<Indexes>(other)->begin()...}};
@@ -397,17 +392,13 @@ private:
  * invalidates all the iterators and using them results in undefined behavior.
  *
  * @note
- * Views share a reference to the underlying data structure with the registry
- * that generated them. Therefore any change to the entities and to the
- * components made by means of the registry are immediately reflected by views.
+ * Views share a reference to the underlying data structure of the registry that
+ * generated them. Therefore any change to the entities and to the components
+ * made by means of the registry are immediately reflected by views.
  *
  * @warning
  * Lifetime of a view must overcome the one of the registry that generated it.
  * In any other case, attempting to use a view results in undefined behavior.
- *
- * @sa view
- * @sa persistent_view
- * @sa runtime_view
  *
  * @tparam Entity A valid entity type (see entt_traits for more details).
  * @tparam Component Type of component iterated by the view.
@@ -640,19 +631,15 @@ private:
  * behavior.
  *
  * @note
- * Views share references to the underlying data structures with the registry
- * that generated them. Therefore any change to the entities and to the
- * components made by means of the registry are immediately reflected by views,
- * unless a pool wasn't missing when the view was built (in this case, the view
- * won't have a valid reference and won't be updated accordingly).
+ * Views share references to the underlying data structures of the registry that
+ * generated them. Therefore any change to the entities and to the components
+ * made by means of the registry are immediately reflected by the views, unless
+ * a pool was missing when the view was built (in this case, the view won't
+ * have a valid reference and won't be updated accordingly).
  *
  * @warning
  * Lifetime of a view must overcome the one of the registry that generated it.
  * In any other case, attempting to use a view results in undefined behavior.
- *
- * @sa view
- * @sa view<Entity, Component>
- * @sa persistent_view
  *
  * @tparam Entity A valid entity type (see entt_traits for more details).
  */
