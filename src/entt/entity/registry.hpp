@@ -67,7 +67,7 @@ class registry {
         signal_type construction;
         signal_type destruction;
         typename sparse_set<Entity>::size_type last;
-        bool owned;
+        sparse_set<Entity> *group;
     };
 
     template<auto Has, auto Any, typename... Owned>
@@ -122,7 +122,7 @@ class registry {
 
         if(!pools[type<Component>()]) {
             pools[type<Component>()] = std::make_unique<sparse_set<Entity, std::decay_t<Component>>>();
-            cdata[type<Component>()].owned = false;
+            cdata[type<Component>()].group = nullptr;
             cdata[type<Component>()].last = {};
         }
 
@@ -883,7 +883,7 @@ public:
     template<typename Component, typename Compare, typename Sort = std_sort, typename... Args>
     void sort(Compare compare, Sort sort = Sort{}, Args &&... args) {
         auto &cpool = assure<Component>();
-        assert(!cdata[type<Component>()].owned);
+        assert(!cdata[type<Component>()].group);
         cpool.sort(std::move(compare), std::move(sort), std::forward<Args>(args)...);
     }
 
@@ -927,7 +927,7 @@ public:
     template<typename To, typename From>
     void sort() {
         auto &cpool = assure<To>();
-        assert(!cdata[type<To>()].owned);
+        assert(!cdata[type<To>()].group);
         cpool.respect(assure<From>());
     }
 
@@ -1134,7 +1134,7 @@ public:
     template<typename Component>
     bool has_group() const ENTT_NOEXCEPT {
         assure<Component>();
-        return cdata[type<Component>()].owned;
+        return cdata[type<Component>()].group;
     }
 
     /**
@@ -1185,10 +1185,10 @@ public:
                 handlers[htype] = std::make_unique<sparse_set<entity_type>>();
                 auto *direct = handlers[htype].get();
 
+                ((cdata[type<Get>()].destruction.sink().template connect<&registry::destroy_if<handler_type>>()), ...);
                 ((cdata[type<Get>()].construction.sink().template connect<&construct_if<handler_type, &registry::has<Get...>, &registry::any_of<Exclude...>>>()), ...);
                 ((cdata[type<Exclude>()].destruction.sink().template connect<&construct_if<handler_type, &registry::has<Get...>, &registry::any_of<Exclude...>>>()), ...);
                 ((cdata[type<Exclude>()].construction.sink().template connect<&registry::destroy_if<handler_type>>()), ...);
-                ((cdata[type<Get>()].destruction.sink().template connect<&registry::destroy_if<handler_type>>()), ...);
 
                 for(const auto entity: view<Get...>()) {
                     if(!any_of<Exclude...>(entity)) {
@@ -1199,30 +1199,31 @@ public:
 
             return { handlers[htype].get(), &pool<Get>()... };
         } else {
-            assert(!(cdata[type<Owned>()].owned || ...));
-            ((cdata[type<Owned>()].owned = true), ...);
+            const auto ctype = type<std::tuple_element_t<0, std::tuple<Owned...>>>();
+            assert(((cdata[type<Owned>()].group == cdata[ctype].group) && ...));
 
-            (cdata[type<Owned>()].construction.sink().template connect<&induce_if<&registry::has<Owned..., Get...>, &registry::any_of<Exclude...>, Owned...>>(), ...);
-            (cdata[type<Get>()].construction.sink().template connect<&induce_if<&registry::has<Owned..., Get...>, &registry::any_of<Exclude...>, Owned...>>(), ...);
+            if(!cdata[ctype].group) {
+                ((cdata[type<Owned>()].group = pools[ctype].get()), ...);
 
-            (cdata[type<Owned>()].destruction.sink().template connect<&discard_if<&registry::has<Owned..., Get...>, &registry::any_of<Exclude...>, Owned...>>(), ...);
-            (cdata[type<Get>()].destruction.sink().template connect<&discard_if<&registry::has<Owned..., Get...>, &registry::any_of<Exclude...>, Owned...>>(), ...);
+                (cdata[type<Owned>()].construction.sink().template connect<&induce_if<&registry::has<Owned..., Get...>, &registry::any_of<Exclude...>, Owned...>>(), ...);
+                (cdata[type<Get>()].construction.sink().template connect<&induce_if<&registry::has<Owned..., Get...>, &registry::any_of<Exclude...>, Owned...>>(), ...);
 
-            (cdata[type<Exclude>()].construction.sink().template connect<&discard_if<&registry::has<Owned..., Get...>, &registry::any_of<Exclude...>, Owned...>>(), ...);
-            (cdata[type<Exclude>()].destruction.sink().template connect<&induce_if<&registry::has<Owned..., Get...>, &registry::any_of<Exclude...>, Owned...>>(), ...);
+                (cdata[type<Owned>()].destruction.sink().template connect<&discard_if<&registry::has<Owned..., Get...>, &registry::any_of<Exclude...>, Owned...>>(), ...);
+                (cdata[type<Get>()].destruction.sink().template connect<&discard_if<&registry::has<Owned..., Get...>, &registry::any_of<Exclude...>, Owned...>>(), ...);
 
-            const auto *cpool = std::min({ pools[type<Owned>()].get()... }, [](const auto *lhs, const auto *rhs) {
-                return lhs->size() < rhs->size();
-            });
+                (cdata[type<Exclude>()].construction.sink().template connect<&discard_if<&registry::has<Owned..., Get...>, &registry::any_of<Exclude...>, Owned...>>(), ...);
+                (cdata[type<Exclude>()].destruction.sink().template connect<&induce_if<&registry::has<Owned..., Get...>, &registry::any_of<Exclude...>, Owned...>>(), ...);
 
-            std::for_each(cpool->data(), cpool->data() + cpool->size(), [this](const auto entity) {
-                if(has<Owned..., Get...>(entity) && !any_of<Exclude...>(entity)) {
-                    (std::swap(pool<Owned>().get(entity), pool<Owned>().raw()[cdata[type<Owned>()].last]), ...);
-                    (pool<Owned>().swap(pools[type<Owned>()]->get(entity), cdata[type<Owned>()].last++), ...);
-                }
-            });
+                const auto *cpool = std::min({ pools[type<Owned>()].get()... }, [](const auto *lhs, const auto *rhs) {
+                    return lhs->size() < rhs->size();
+                });
 
-            return { &cdata[type<std::tuple_element_t<0, std::tuple<Owned...>>>()].last, &pool<Owned>()..., &pool<Get>()... };
+                std::for_each(cpool->data(), cpool->data() + cpool->size(), [this](const auto entity) {
+                    induce_if<&registry::has<Owned..., Get...>, &registry::any_of<Exclude...>, Owned...>(*this, entity);
+                });
+            }
+
+            return { &cdata[ctype].last, &pool<Owned>()..., &pool<Get>()... };
         }
     }
 

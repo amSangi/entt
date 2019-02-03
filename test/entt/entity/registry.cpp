@@ -410,18 +410,18 @@ TEST(Registry, NonOwningGroupInitOnFirstUse) {
     registry.assign<int>(e2, 0);
     registry.assign<char>(e2, 'c');
 
-    auto view = registry.group<>(entt::get<int, char>);
-    decltype(view)::size_type cnt{0};
-    view.each([&cnt](auto...) { ++cnt; });
+    auto group = registry.group<>(entt::get<int, char>);
+    decltype(group)::size_type cnt{0};
+    group.each([&cnt](auto...) { ++cnt; });
 
-    ASSERT_EQ(cnt, decltype(view)::size_type{2});
+    ASSERT_EQ(cnt, decltype(group)::size_type{2});
     ASSERT_FALSE(registry.has_group<int>());
     ASSERT_FALSE(registry.has_group<char>());
 }
 
 TEST(Registry, NonOwningGroupInitOnAssign) {
     entt::registry<> registry;
-    auto view = registry.group<>(entt::get<int, char>);
+    auto group = registry.group<>(entt::get<int, char>);
 
     const auto e0 = registry.create();
     registry.assign<int>(e0, 0);
@@ -434,10 +434,10 @@ TEST(Registry, NonOwningGroupInitOnAssign) {
     registry.assign<int>(e2, 0);
     registry.assign<char>(e2, 'c');
 
-    decltype(view)::size_type cnt{0};
-    view.each([&cnt](auto...) { ++cnt; });
+    decltype(group)::size_type cnt{0};
+    group.each([&cnt](auto...) { ++cnt; });
 
-    ASSERT_EQ(cnt, decltype(view)::size_type{2});
+    ASSERT_EQ(cnt, decltype(group)::size_type{2});
     ASSERT_FALSE(registry.has_group<int>());
     ASSERT_FALSE(registry.has_group<char>());
 }
@@ -456,18 +456,18 @@ TEST(Registry, FullOwningGroupInitOnFirstUse) {
     registry.assign<int>(e2, 0);
     registry.assign<char>(e2, 'c');
 
-    auto view = registry.group<int, char>();
-    decltype(view)::size_type cnt{0};
-    view.each([&cnt](auto...) { ++cnt; });
+    auto group = registry.group<int, char>();
+    decltype(group)::size_type cnt{0};
+    group.each([&cnt](auto...) { ++cnt; });
 
-    ASSERT_EQ(cnt, decltype(view)::size_type{2});
+    ASSERT_EQ(cnt, decltype(group)::size_type{2});
     ASSERT_TRUE(registry.has_group<int>());
     ASSERT_TRUE(registry.has_group<char>());
 }
 
 TEST(Registry, FullOwningGroupInitOnAssign) {
     entt::registry<> registry;
-    auto view = registry.group<int, char>();
+    auto group = registry.group<int, char>();
 
     const auto e0 = registry.create();
     registry.assign<int>(e0, 0);
@@ -480,10 +480,10 @@ TEST(Registry, FullOwningGroupInitOnAssign) {
     registry.assign<int>(e2, 0);
     registry.assign<char>(e2, 'c');
 
-    decltype(view)::size_type cnt{0};
-    view.each([&cnt](auto...) { ++cnt; });
+    decltype(group)::size_type cnt{0};
+    group.each([&cnt](auto...) { ++cnt; });
 
-    ASSERT_EQ(cnt, decltype(view)::size_type{2});
+    ASSERT_EQ(cnt, decltype(group)::size_type{2});
     ASSERT_TRUE(registry.has_group<int>());
     ASSERT_TRUE(registry.has_group<char>());
 }
@@ -502,11 +502,11 @@ TEST(Registry, PartialOwningGroupInitOnFirstUse) {
     registry.assign<int>(e2, 0);
     registry.assign<char>(e2, 'c');
 
-    auto view = registry.group<int>(entt::get<char>);
-    decltype(view)::size_type cnt{0};
-    view.each([&cnt](auto...) { ++cnt; });
+    auto group = registry.group<int>(entt::get<char>);
+    decltype(group)::size_type cnt{0};
+    group.each([&cnt](auto...) { ++cnt; });
 
-    ASSERT_EQ(cnt, decltype(view)::size_type{2});
+    ASSERT_EQ(cnt, decltype(group)::size_type{2});
     ASSERT_TRUE(registry.has_group<int>());
     ASSERT_FALSE(registry.has_group<char>());
 
@@ -514,7 +514,7 @@ TEST(Registry, PartialOwningGroupInitOnFirstUse) {
 
 TEST(Registry, PartialOwningGroupInitOnAssign) {
     entt::registry<> registry;
-    auto view = registry.group<int>(entt::get<char>);
+    auto group = registry.group<int>(entt::get<char>);
 
     const auto e0 = registry.create();
     registry.assign<int>(e0, 0);
@@ -527,10 +527,10 @@ TEST(Registry, PartialOwningGroupInitOnAssign) {
     registry.assign<int>(e2, 0);
     registry.assign<char>(e2, 'c');
 
-    decltype(view)::size_type cnt{0};
-    view.each([&cnt](auto...) { ++cnt; });
+    decltype(group)::size_type cnt{0};
+    group.each([&cnt](auto...) { ++cnt; });
 
-    ASSERT_EQ(cnt, decltype(view)::size_type{2});
+    ASSERT_EQ(cnt, decltype(group)::size_type{2});
     ASSERT_TRUE(registry.has_group<int>());
     ASSERT_FALSE(registry.has_group<char>());
 }
@@ -549,47 +549,47 @@ TEST(Registry, CleanViewAfterReset) {
 
 TEST(Registry, CleanNonOwningGroupViewAfterReset) {
     entt::registry<> registry;
-    auto view = registry.group<>(entt::get<int, char>);
+    auto group = registry.group<>(entt::get<int, char>);
 
     const auto entity = registry.create();
     registry.assign<int>(entity, 0);
     registry.assign<char>(entity, 'c');
 
-    ASSERT_EQ(view.size(), entt::registry<>::size_type{1});
+    ASSERT_EQ(group.size(), entt::registry<>::size_type{1});
 
     registry.reset();
 
-    ASSERT_EQ(view.size(), entt::registry<>::size_type{0});
+    ASSERT_EQ(group.size(), entt::registry<>::size_type{0});
 }
 
 TEST(Registry, CleanFullOwningGroupViewAfterReset) {
     entt::registry<> registry;
-    auto view = registry.group<int, char>();
+    auto group = registry.group<int, char>();
 
     const auto entity = registry.create();
     registry.assign<int>(entity, 0);
     registry.assign<char>(entity, 'c');
 
-    ASSERT_EQ(view.size(), entt::registry<>::size_type{1});
+    ASSERT_EQ(group.size(), entt::registry<>::size_type{1});
 
     registry.reset();
 
-    ASSERT_EQ(view.size(), entt::registry<>::size_type{0});
+    ASSERT_EQ(group.size(), entt::registry<>::size_type{0});
 }
 
 TEST(Registry, CleanPartialOwningGroupViewAfterReset) {
     entt::registry<> registry;
-    auto view = registry.group<int>(entt::get<char>);
+    auto group = registry.group<int>(entt::get<char>);
 
     const auto entity = registry.create();
     registry.assign<int>(entity, 0);
     registry.assign<char>(entity, 'c');
 
-    ASSERT_EQ(view.size(), entt::registry<>::size_type{1});
+    ASSERT_EQ(group.size(), entt::registry<>::size_type{1});
 
     registry.reset();
 
-    ASSERT_EQ(view.size(), entt::registry<>::size_type{0});
+    ASSERT_EQ(group.size(), entt::registry<>::size_type{0});
 }
 
 TEST(Registry, SortSingle) {
@@ -810,12 +810,12 @@ TEST(Registry, DestroyByComponents) {
 TEST(Registry, SignalsOnAccommodate) {
     entt::registry<> registry;
     const auto entity = registry.create();
-    const auto view = registry.group<>(entt::get<int, char>);
+    const auto group = registry.group<>(entt::get<int, char>);
 
     registry.assign<int>(entity);
     registry.assign_or_replace<char>(entity);
 
-    ASSERT_FALSE((view.empty()));
+    ASSERT_FALSE((group.empty()));
 }
 
 TEST(Registry, CreateManyEntitiesAtOnce) {
@@ -851,16 +851,16 @@ TEST(Registry, NonOwningGroupInterleaved) {
     registry.assign<int>(entity);
     registry.assign<char>(entity);
 
-    const auto view = registry.group<>(entt::get<int, char>);
+    const auto group = registry.group<>(entt::get<int, char>);
 
     entity = registry.create();
     registry.assign<int>(entity);
     registry.assign<char>(entity);
 
-    decltype(view)::size_type cnt{0};
-    view.each([&cnt](auto...) { ++cnt; });
+    decltype(group)::size_type cnt{0};
+    group.each([&cnt](auto...) { ++cnt; });
 
-    ASSERT_EQ(cnt, decltype(view)::size_type{2});
+    ASSERT_EQ(cnt, decltype(group)::size_type{2});
 }
 
 TEST(Registry, FullOwningGroupInterleaved) {
@@ -871,16 +871,16 @@ TEST(Registry, FullOwningGroupInterleaved) {
     registry.assign<int>(entity);
     registry.assign<char>(entity);
 
-    const auto view = registry.group<int, char>();
+    const auto group = registry.group<int, char>();
 
     entity = registry.create();
     registry.assign<int>(entity);
     registry.assign<char>(entity);
 
-    decltype(view)::size_type cnt{0};
-    view.each([&cnt](auto...) { ++cnt; });
+    decltype(group)::size_type cnt{0};
+    group.each([&cnt](auto...) { ++cnt; });
 
-    ASSERT_EQ(cnt, decltype(view)::size_type{2});
+    ASSERT_EQ(cnt, decltype(group)::size_type{2});
 }
 
 TEST(Registry, PartialOwningGroupInterleaved) {
@@ -891,21 +891,21 @@ TEST(Registry, PartialOwningGroupInterleaved) {
     registry.assign<int>(entity);
     registry.assign<char>(entity);
 
-    const auto view = registry.group<int>(entt::get<char>);
+    const auto group = registry.group<int>(entt::get<char>);
 
     entity = registry.create();
     registry.assign<int>(entity);
     registry.assign<char>(entity);
 
-    decltype(view)::size_type cnt{0};
-    view.each([&cnt](auto...) { ++cnt; });
+    decltype(group)::size_type cnt{0};
+    group.each([&cnt](auto...) { ++cnt; });
 
-    ASSERT_EQ(cnt, decltype(view)::size_type{2});
+    ASSERT_EQ(cnt, decltype(group)::size_type{2});
 }
 
 TEST(Registry, NonOwningGroupSortInterleaved) {
     entt::registry<> registry;
-    const auto view = registry.group<>(entt::get<int, char>);
+    const auto group = registry.group<>(entt::get<int, char>);
 
     const auto e0 = registry.create();
     registry.assign<int>(e0, 0);
@@ -922,7 +922,7 @@ TEST(Registry, NonOwningGroupSortInterleaved) {
     registry.assign<int>(e2, 2);
     registry.assign<char>(e2, '2');
 
-    view.each([e0, e1, e2](const auto entity, const auto &i, const auto &c) {
+    group.each([e0, e1, e2](const auto entity, const auto &i, const auto &c) {
         if(entity == e0) {
             ASSERT_EQ(i, 0);
             ASSERT_EQ(c, '0');

@@ -30,7 +30,7 @@ struct as_view {
     /**
      * @brief Conversion function from a registry to a view.
      * @tparam Component Type of components used to construct the view.
-     * @return A newly created standard view.
+     * @return A newly created view.
      */
     template<typename... Component>
     inline operator entt::view<Entity, Component...>() const {
@@ -57,6 +57,55 @@ as_view(registry<Entity> &) ENTT_NOEXCEPT -> as_view<false, Entity>;
 /*! @copydoc as_view */
 template<typename Entity>
 as_view(const registry<Entity> &) ENTT_NOEXCEPT -> as_view<true, Entity>;
+
+
+/**
+ * @brief Converts a registry to a group.
+ * @tparam Const Constness of the accepted registry.
+ * @tparam Entity A valid entity type (see entt_traits for more details).
+ */
+template<bool Const, typename Entity>
+struct as_group {
+    /*! @brief Type of registry to convert. */
+    using registry_type = std::conditional_t<Const, const entt::registry<Entity>, entt::registry<Entity>>;
+
+    /**
+     * @brief Constructs a converter for a given registry.
+     * @param reg A valid reference to a registry.
+     */
+    as_group(registry_type &reg) ENTT_NOEXCEPT: reg{reg} {}
+
+    /**
+     * @brief Conversion function from a registry to a group.
+     * @tparam Owned Types of components owned by the group.
+     * @tparam Get Types of components observed by the group.
+     * @return A newly created group.
+     */
+    template<typename... Get, typename... Owned>
+    inline operator entt::group<Entity, get_t<Get...>, Owned...>() const {
+        return reg.template group<Owned...>(get<Get...>);
+    }
+
+private:
+    registry_type &reg;
+};
+
+
+/**
+ * @brief Deduction guideline.
+ *
+ * It allows to deduce the constness of a registry directly from the instance
+ * provided to the constructor.
+ *
+ * @tparam Entity A valid entity type (see entt_traits for more details).
+ */
+template<typename Entity>
+as_group(registry<Entity> &) ENTT_NOEXCEPT -> as_group<false, Entity>;
+
+
+/*! @copydoc as_group */
+template<typename Entity>
+as_group(const registry<Entity> &) ENTT_NOEXCEPT -> as_group<true, Entity>;
 
 
 /**

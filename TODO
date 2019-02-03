@@ -23,9 +23,11 @@
 * allow to replace std:: with custom implementations
 * allow curried function and lambdas on sigh/dispatcher (mixed approach with sinks that accept also delegates?)
 * allow user to use also uint32 for hashed strings type if possible
+* views' iterators should return a tuple entity+components, not only entities
 
 Ready to go:
 * docs: entity.md
-* tests: view.cpp, group.cpp, benchmark.cpp, registry.cpp
+* tests: group.cpp
 * investigate if tracking indexes for free components is worth it
-* add utility as_group (helper.hpp)
+* test that const and non const types return the same group (owning and non-owning)
+* benchmark: add sort of pathological case
