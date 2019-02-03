@@ -74,7 +74,7 @@ class registry {
     static void induce_if(registry &reg, const Entity entity) {
         if((reg.*Has)(entity) && !(reg.*Any)(entity)) {
             (std::swap(reg.pool<Owned>().get(entity), reg.pool<Owned>().raw()[reg.cdata[reg.type<Owned>()].last]), ...);
-            (reg.pool<Owned>().swap(reg.pools[reg.type<Owned>()]->get(entity), reg.cdata[reg.type<Owned>].last++), ...);
+            (reg.pool<Owned>().swap(reg.pools[reg.type<Owned>()]->get(entity), reg.cdata[reg.type<Owned>()].last++), ...);
         }
     }
 
@@ -82,7 +82,7 @@ class registry {
     static void discard_if(registry &reg, const Entity entity) {
         if((reg.*Has)(entity) && !(reg.*Any)(entity)) {
             (std::swap(reg.pool<Owned>().get(entity), reg.pool<Owned>().raw()[--reg.cdata[reg.type<Owned>()].last]), ...);
-            (reg.pool<Owned>().swap(reg.pools[reg.type<Owned>()]->get(entity), reg.cdata[reg.type<Owned>].last), ...);
+            (reg.pool<Owned>().swap(reg.pools[reg.type<Owned>()]->get(entity), reg.cdata[reg.type<Owned>()].last), ...);
         }
     }
 
@@ -1133,7 +1133,8 @@ public:
      */
     template<typename Component>
     bool has_group() const ENTT_NOEXCEPT {
-        return assure<Component>().owned;
+        assure<Component>();
+        return cdata[type<Component>()].owned;
     }
 
     /**
@@ -1164,7 +1165,7 @@ public:
      * @return A newly created group.
      */
     template<typename... Owned, typename... Get, typename... Exclude>
-    entt::group<Entity, get_t<Get...>, Owned...> group(get_t<Get...>, exclude_t<Exclude...> = {}) {
+    entt::group<Entity, get_t<Get...>, Owned...> group(get_t<Get...> = {}, exclude_t<Exclude...> = {}) {
         static_assert(sizeof...(Owned) + sizeof...(Get) + sizeof...(Exclude) > 1);
         static_assert(sizeof...(Owned) + sizeof...(Get));
 
@@ -1172,32 +1173,7 @@ public:
         (assure<Get>(), ...);
         (assure<Exclude>(), ...);
 
-        if constexpr(sizeof...(Owned)) {
-            assert(!(cdata[type<Owned>()].owned || ...));
-            ((cdata[type<Owned>()].owned = true), ...);
-
-            (cdata[type<Owned>()].construction.sink().template connect<&induce_if<&registry::has<Owned..., Get...>, &registry::any_of<Exclude...>, Owned...>>(), ...);
-            (cdata[type<Get>()].construction.sink().template connect<&induce_if<&registry::has<Owned..., Get...>, &registry::any_of<Exclude...>, Owned...>>(), ...);
-
-            (cdata[type<Owned>()].destruction.sink().template connect<&discard_if<&registry::has<Owned..., Get...>, &registry::any_of<Exclude...>, Owned...>>(), ...);
-            (cdata[type<Get>()].destruction.sink().template connect<&discard_if<&registry::has<Owned..., Get...>, &registry::any_of<Exclude...>, Owned...>>(), ...);
-
-            (cdata[type<Exclude>()].construction.sink().template connect<&discard_if<&registry::has<Owned..., Get...>, &registry::any_of<Exclude...>, Owned...>>(), ...);
-            (cdata[type<Exclude>()].destruction.sink().template connect<&induce_if<&registry::has<Owned..., Get...>, &registry::any_of<Exclude...>, Owned...>>(), ...);
-
-            const auto *cpool = std::min({ pools[type<Owned>()].get()... }, [](const auto *lhs, const auto *rhs) {
-                return lhs->size() < rhs->size();
-            });
-
-            std::for_each(cpool->data(), cpool->data() + cpool->size(), [this](const auto entity) {
-                if(has<Owned..., Get...>(entity) && !any_of<Exclude...>(entity)) {
-                    (std::swap(pool<Owned>().get(entity), pool<Owned>().raw()[cdata[type<Owned>()].last]), ...);
-                    (pool<Owned>().swap(pools[type<Owned>()]->get(entity), cdata[type<Owned>()].last++), ...);
-                }
-            });
-
-            return { &cdata[type<std::tuple_element_t<0, std::tuple<Owned...>>>()].last, &pool<Owned>()..., &pool<Get>()... };
-        } else {
+        if constexpr(sizeof...(Owned) == 0) {
             using handler_type = type_list<Get..., type_list<Exclude...>>;
             const auto htype = handler_family::type<handler_type>;
 
@@ -1222,12 +1198,37 @@ public:
             }
 
             return { handlers[htype].get(), &pool<Get>()... };
+        } else {
+            assert(!(cdata[type<Owned>()].owned || ...));
+            ((cdata[type<Owned>()].owned = true), ...);
+
+            (cdata[type<Owned>()].construction.sink().template connect<&induce_if<&registry::has<Owned..., Get...>, &registry::any_of<Exclude...>, Owned...>>(), ...);
+            (cdata[type<Get>()].construction.sink().template connect<&induce_if<&registry::has<Owned..., Get...>, &registry::any_of<Exclude...>, Owned...>>(), ...);
+
+            (cdata[type<Owned>()].destruction.sink().template connect<&discard_if<&registry::has<Owned..., Get...>, &registry::any_of<Exclude...>, Owned...>>(), ...);
+            (cdata[type<Get>()].destruction.sink().template connect<&discard_if<&registry::has<Owned..., Get...>, &registry::any_of<Exclude...>, Owned...>>(), ...);
+
+            (cdata[type<Exclude>()].construction.sink().template connect<&discard_if<&registry::has<Owned..., Get...>, &registry::any_of<Exclude...>, Owned...>>(), ...);
+            (cdata[type<Exclude>()].destruction.sink().template connect<&induce_if<&registry::has<Owned..., Get...>, &registry::any_of<Exclude...>, Owned...>>(), ...);
+
+            const auto *cpool = std::min({ pools[type<Owned>()].get()... }, [](const auto *lhs, const auto *rhs) {
+                return lhs->size() < rhs->size();
+            });
+
+            std::for_each(cpool->data(), cpool->data() + cpool->size(), [this](const auto entity) {
+                if(has<Owned..., Get...>(entity) && !any_of<Exclude...>(entity)) {
+                    (std::swap(pool<Owned>().get(entity), pool<Owned>().raw()[cdata[type<Owned>()].last]), ...);
+                    (pool<Owned>().swap(pools[type<Owned>()]->get(entity), cdata[type<Owned>()].last++), ...);
+                }
+            });
+
+            return { &cdata[type<std::tuple_element_t<0, std::tuple<Owned...>>>()].last, &pool<Owned>()..., &pool<Get>()... };
         }
     }
 
     /*! @copydoc group */
     template<typename... Owned, typename... Get, typename... Exclude>
-    inline entt::group<Entity, get_t<Get...>, Owned...> group(get_t<Get...>, exclude_t<Exclude...> = {}) const {
+    inline entt::group<Entity, get_t<Get...>, Owned...> group(get_t<Get...> = {}, exclude_t<Exclude...> = {}) const {
         static_assert(std::conjunction_v<std::is_const<Owned>..., std::is_const<Get>...>);
         return const_cast<registry *>(this)->group<Owned...>(entt::get<Get...>, exclude<Exclude...>);
     }

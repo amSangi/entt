@@ -563,7 +563,7 @@ public:
 
         for(; len; --len) {
             if constexpr(std::is_invocable_v<Func, std::add_lvalue_reference_t<Owned>..., std::add_lvalue_reference_t<Get>...>) {
-                if(sizeof...(Get)) {
+                if constexpr(sizeof...(Get)) {
                     const auto entity = *(data++);
                     func(*(std::get<component_iterator_type<Owned>>(raw)++)..., std::get<pool_type<Get> *>(pools)->get(entity)...);
                 } else {
