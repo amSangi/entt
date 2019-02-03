@@ -81,7 +81,7 @@ struct as_group {
      * @tparam Get Types of components observed by the group.
      * @return A newly created group.
      */
-    template<typename... Get, typename... Owned>
+    template<typename... Owned, typename... Get>
     inline operator entt::group<Entity, get_t<Get...>, Owned...>() const {
         return reg.template group<Owned...>(get<Get...>);
     }

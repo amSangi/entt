@@ -5,7 +5,7 @@
 #include <entt/entity/registry.hpp>
 #include <entt/entity/group.hpp>
 
-TEST(PersistentView, Functionalities) {
+TEST(NonOwningGroup, Functionalities) {
     entt::registry<> registry;
     auto group = registry.group<>(entt::get<int, char>);
     auto cgroup = std::as_const(registry).group<>(entt::get<const int, const char>);
@@ -55,7 +55,7 @@ TEST(PersistentView, Functionalities) {
     ASSERT_TRUE(group.empty());
 }
 
-TEST(PersistentView, ElementAccess) {
+TEST(NonOwningGroup, ElementAccess) {
     entt::registry<> registry;
     auto group = registry.group<>(entt::get<int, char>);
     auto cgroup = std::as_const(registry).group<>(entt::get<const int, const char>);
@@ -74,7 +74,7 @@ TEST(PersistentView, ElementAccess) {
     }
 }
 
-TEST(PersistentView, Contains) {
+TEST(NonOwningGroup, Contains) {
     entt::registry<> registry;
     auto group = registry.group<>(entt::get<int, char>);
 
@@ -92,7 +92,7 @@ TEST(PersistentView, Contains) {
     ASSERT_TRUE(group.contains(e1));
 }
 
-TEST(PersistentView, Empty) {
+TEST(NonOwningGroup, Empty) {
     entt::registry<> registry;
 
     const auto e0 = registry.create();
@@ -115,7 +115,7 @@ TEST(PersistentView, Empty) {
     }
 }
 
-TEST(PersistentView, Each) {
+TEST(NonOwningGroup, Each) {
     entt::registry<> registry;
     auto group = registry.group<>(entt::get<int, char>);
 
@@ -141,7 +141,7 @@ TEST(PersistentView, Each) {
     ASSERT_EQ(cnt, std::size_t{0});
 }
 
-TEST(PersistentView, Sort) {
+TEST(NonOwningGroup, Sort) {
     entt::registry<> registry;
     auto group = registry.group<>(entt::get<const int, unsigned int>);
 
@@ -174,7 +174,7 @@ TEST(PersistentView, Sort) {
     }
 }
 
-TEST(PersistentView, IndexRebuiltOnDestroy) {
+TEST(NonOwningGroup, IndexRebuiltOnDestroy) {
     entt::registry<> registry;
     auto group = registry.group<>(entt::get<int, unsigned int>);
 
@@ -202,7 +202,7 @@ TEST(PersistentView, IndexRebuiltOnDestroy) {
     });
 }
 
-TEST(PersistentView, ConstNonConstAndAllInBetween) {
+TEST(NonOwningGroup, ConstNonConstAndAllInBetween) {
     entt::registry<> registry;
     auto group = registry.group<>(entt::get<int, const char>);
 
@@ -218,7 +218,7 @@ TEST(PersistentView, ConstNonConstAndAllInBetween) {
     });
 }
 
-TEST(PersistentView, Find) {
+TEST(NonOwningGroup, Find) {
     entt::registry<> registry;
     auto group = registry.group<>(entt::get<int, const char>);
 
@@ -263,7 +263,7 @@ TEST(PersistentView, Find) {
     ASSERT_EQ(group.find(e4), group.end());
 }
 
-TEST(PersistentView, ExcludedComponents) {
+TEST(NonOwningGroup, ExcludedComponents) {
     entt::registry<> registry;
 
     const auto e0 = registry.create();
@@ -311,7 +311,7 @@ TEST(PersistentView, ExcludedComponents) {
     }
 }
 
-TEST(PersistentView, EmptyAndNonEmptyTypes) {
+TEST(NonOwningGroup, EmptyAndNonEmptyTypes) {
     struct empty_type {};
     entt::registry<> registry;
     const auto group = registry.group<>(entt::get<int, empty_type>);
