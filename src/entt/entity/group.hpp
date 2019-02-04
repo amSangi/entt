@@ -360,8 +360,6 @@ class group<Entity, get_t<Get...>, Owned...> {
     template<typename Component>
     using component_iterator_type = decltype(std::declval<pool_type<Component>>().begin());
 
-    using direct_type = std::tuple_element_t<0, std::tuple<Owned...>>;
-
     // we could use pool_type<Type> *..., but vs complains about it and refuses to compile for unknown reasons (likely a bug)
     group(typename sparse_set<Entity>::size_type *length, sparse_set<Entity, std::remove_const_t<Owned>> *... owned, sparse_set<Entity, std::remove_const_t<Get>> *... others) ENTT_NOEXCEPT
         : length{length},
@@ -399,7 +397,7 @@ public:
      * @return True if the group is empty, false otherwise.
      */
     bool empty() const ENTT_NOEXCEPT {
-        return *length;
+        return !*length;
     }
 
     /**
@@ -437,7 +435,7 @@ public:
      * @return A pointer to the array of entities.
      */
     const entity_type * data() const ENTT_NOEXCEPT {
-        return std::get<pool_type<direct_type> *>(pools)->data();
+        return std::get<0>(pools)->data();
     }
 
     /**
@@ -455,7 +453,7 @@ public:
      * @return An iterator to the first entity that has the given components.
      */
     iterator_type begin() const ENTT_NOEXCEPT {
-        return std::get<pool_type<direct_type> *>(pools)->end() - *length;
+        return std::get<0>(pools)->sparse_set<entity_type>::end() - *length;
     }
 
     /**
@@ -474,7 +472,7 @@ public:
      * given components.
      */
     iterator_type end() const ENTT_NOEXCEPT {
-        return std::get<pool_type<direct_type> *>(pools)->end();
+        return std::get<0>(pools)->sparse_set<entity_type>::end();
     }
 
     /**
@@ -484,7 +482,7 @@ public:
      * iterator otherwise.
      */
     iterator_type find(const entity_type entity) const ENTT_NOEXCEPT {
-        const auto it = std::get<pool_type<direct_type> *>(pools)->find(entity);
+        const auto it = std::get<0>(pools)->find(entity);
         return it != end() && it >= begin() && *it == entity ? it : end();
     }
 
@@ -559,7 +557,7 @@ public:
     inline void each(Func func) const {
         auto len = *length;
         auto raw = std::make_tuple((std::get<pool_type<Owned> *>(pools)->end() - len)...);
-        [[maybe_unused]] auto data = std::get<pool_type<direct_type> *>(pools)->sparse_set<entity_type>::end() - len;
+        [[maybe_unused]] auto data = std::get<0>(pools)->sparse_set<entity_type>::end() - len;
 
         for(; len; --len) {
             if constexpr(std::is_invocable_v<Func, std::add_lvalue_reference_t<Owned>..., std::add_lvalue_reference_t<Get>...>) {

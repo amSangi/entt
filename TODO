@@ -24,6 +24,7 @@
 * allow curried function and lambdas on sigh/dispatcher (mixed approach with sinks that accept also delegates?)
 * allow user to use also uint32 for hashed strings type if possible
 * views' iterators should return a tuple entity+components, not only entities
+* delegate/sigh "benign" UB: memcpy to work around the fact that types don't pop in existence when the storage is copied (even if all the compilers allow it)
 
 Ready to go:
 * docs: entity.md
@@ -31,3 +32,4 @@ Ready to go:
 * investigate if tracking indexes for free components is worth it
 * test that const and non const types return the same group (owning and non-owning)
 * benchmark: add sort of pathological case
+* review groups, functions attached on destruction don't work properly (because the component is still there and any_of returns a "wrong" result) - add test

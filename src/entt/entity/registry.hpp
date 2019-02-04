@@ -66,29 +66,33 @@ class registry {
     struct support_data {
         signal_type construction;
         signal_type destruction;
-        typename sparse_set<Entity>::size_type last;
+        typename sparse_set<Entity>::size_type next;
         sparse_set<Entity> *group;
     };
 
-    template<auto Has, auto Any, typename... Owned>
+    template<auto Has, auto Accept, typename... Owned>
     static void induce_if(registry &reg, const Entity entity) {
-        if((reg.*Has)(entity) && !(reg.*Any)(entity)) {
-            (std::swap(reg.pool<Owned>().get(entity), reg.pool<Owned>().raw()[reg.cdata[reg.type<Owned>()].last]), ...);
-            (reg.pool<Owned>().swap(reg.pools[reg.type<Owned>()]->get(entity), reg.cdata[reg.type<Owned>()].last++), ...);
+        if((reg.*Has)(entity) && (reg.*Accept)(entity)) {
+            (std::swap(reg.pool<Owned>().get(entity), reg.pool<Owned>().raw()[reg.cdata[reg.type<Owned>()].next]), ...);
+            (reg.pool<Owned>().swap(reg.pools[reg.type<Owned>()]->get(entity), reg.cdata[reg.type<Owned>()].next), ...);
+            (reg.cdata[reg.type<Owned>()].next++, ...);
         }
     }
 
-    template<auto Has, auto Any, typename... Owned>
+    template<typename... Owned>
     static void discard_if(registry &reg, const Entity entity) {
-        if((reg.*Has)(entity) && !(reg.*Any)(entity)) {
-            (std::swap(reg.pool<Owned>().get(entity), reg.pool<Owned>().raw()[--reg.cdata[reg.type<Owned>()].last]), ...);
-            (reg.pool<Owned>().swap(reg.pools[reg.type<Owned>()]->get(entity), reg.cdata[reg.type<Owned>()].last), ...);
+        const auto ctype = type<std::tuple_element_t<0, std::tuple<Owned...>>>();
+
+        if(reg.pools[ctype]->has(entity) && reg.pools[ctype]->get(entity) < reg.cdata[ctype].next) {
+            (--reg.cdata[reg.type<Owned>()].next, ...);
+            (std::swap(reg.pool<Owned>().get(entity), reg.pool<Owned>().raw()[reg.cdata[reg.type<Owned>()].next]), ...);
+            (reg.pool<Owned>().swap(reg.pools[reg.type<Owned>()]->get(entity), reg.cdata[reg.type<Owned>()].next), ...);
         }
     }
 
-    template<typename Type, auto Has, auto Any>
+    template<auto Has, auto Accept, typename Type>
     static void construct_if(registry &reg, const Entity entity) {
-        if((reg.*Has)(entity) && !(reg.*Any)(entity)) {
+        if((reg.*Has)(entity) && (reg.*Accept)(entity)) {
             reg.handlers[handler_family::type<Type>]->construct(entity);
         }
     }
@@ -123,7 +127,7 @@ class registry {
         if(!pools[type<Component>()]) {
             pools[type<Component>()] = std::make_unique<sparse_set<Entity, std::decay_t<Component>>>();
             cdata[type<Component>()].group = nullptr;
-            cdata[type<Component>()].last = {};
+            cdata[type<Component>()].next = {};
         }
 
         return pool<Component>();
@@ -134,11 +138,11 @@ class registry {
         return const_cast<sparse_set<Entity, std::decay_t<Component>> &>(std::as_const(*this).template assure<Component>());
     }
 
-    template<typename... Component>
-    bool any_of(const Entity entity) const ENTT_NOEXCEPT {
+    template<auto Auth, typename... Component>
+    bool accept(const Entity entity) const ENTT_NOEXCEPT {
         assert(valid(entity));
         // internal function, pools are guaranteed to exist
-        return (pool<Component>().has(entity) || ...);
+        return (0 + ... + pool<Component>().has(entity)) == Auth;
     }
 
 public:
@@ -970,7 +974,7 @@ public:
         auto &curr = cdata[type<Component>()];
 
         if(curr.destruction.empty()) {
-            curr.last = {};
+            curr.next = {};
             cpool.reset();
         } else {
             for(const auto entity: static_cast<const sparse_set<entity_type> &>(cpool)) {
@@ -1186,12 +1190,12 @@ public:
                 auto *direct = handlers[htype].get();
 
                 ((cdata[type<Get>()].destruction.sink().template connect<&registry::destroy_if<handler_type>>()), ...);
-                ((cdata[type<Get>()].construction.sink().template connect<&construct_if<handler_type, &registry::has<Get...>, &registry::any_of<Exclude...>>>()), ...);
-                ((cdata[type<Exclude>()].destruction.sink().template connect<&construct_if<handler_type, &registry::has<Get...>, &registry::any_of<Exclude...>>>()), ...);
+                ((cdata[type<Get>()].construction.sink().template connect<&construct_if<&registry::has<Get...>, &registry::accept<0, Exclude...>, handler_type>>()), ...);
+                /* TODO WRONG */ ((cdata[type<Exclude>()].destruction.sink().template connect<&construct_if<&registry::has<Get...>, &registry::accept<1, Exclude...>, handler_type>>()), ...);
                 ((cdata[type<Exclude>()].construction.sink().template connect<&registry::destroy_if<handler_type>>()), ...);
 
                 for(const auto entity: view<Get...>()) {
-                    if(!any_of<Exclude...>(entity)) {
+                    if(accept<0, Exclude...>(entity)) {
                         direct->construct(entity);
                     }
                 }
@@ -1205,25 +1209,25 @@ public:
             if(!cdata[ctype].group) {
                 ((cdata[type<Owned>()].group = pools[ctype].get()), ...);
 
-                (cdata[type<Owned>()].construction.sink().template connect<&induce_if<&registry::has<Owned..., Get...>, &registry::any_of<Exclude...>, Owned...>>(), ...);
-                (cdata[type<Get>()].construction.sink().template connect<&induce_if<&registry::has<Owned..., Get...>, &registry::any_of<Exclude...>, Owned...>>(), ...);
+                (cdata[type<Owned>()].construction.sink().template connect<&induce_if<&registry::has<Owned..., Get...>, &registry::accept<0, Exclude...>, Owned...>>(), ...);
+                (cdata[type<Get>()].construction.sink().template connect<&induce_if<&registry::has<Owned..., Get...>, &registry::accept<0, Exclude...>, Owned...>>(), ...);
 
-                (cdata[type<Owned>()].destruction.sink().template connect<&discard_if<&registry::has<Owned..., Get...>, &registry::any_of<Exclude...>, Owned...>>(), ...);
-                (cdata[type<Get>()].destruction.sink().template connect<&discard_if<&registry::has<Owned..., Get...>, &registry::any_of<Exclude...>, Owned...>>(), ...);
+                (cdata[type<Owned>()].destruction.sink().template connect<&discard_if<Owned...>>(), ...);
+                (cdata[type<Get>()].destruction.sink().template connect<&discard_if<Owned...>>(), ...);
 
-                (cdata[type<Exclude>()].construction.sink().template connect<&discard_if<&registry::has<Owned..., Get...>, &registry::any_of<Exclude...>, Owned...>>(), ...);
-                (cdata[type<Exclude>()].destruction.sink().template connect<&induce_if<&registry::has<Owned..., Get...>, &registry::any_of<Exclude...>, Owned...>>(), ...);
+                /* TODO WRONG */ (cdata[type<Exclude>()].destruction.sink().template connect<&induce_if<&registry::has<Owned..., Get...>, &registry::accept<1, Exclude...>, Owned...>>(), ...);
+                (cdata[type<Exclude>()].construction.sink().template connect<&discard_if<Owned...>>(), ...);
 
                 const auto *cpool = std::min({ pools[type<Owned>()].get()... }, [](const auto *lhs, const auto *rhs) {
                     return lhs->size() < rhs->size();
                 });
 
                 std::for_each(cpool->data(), cpool->data() + cpool->size(), [this](const auto entity) {
-                    induce_if<&registry::has<Owned..., Get...>, &registry::any_of<Exclude...>, Owned...>(*this, entity);
+                    induce_if<&registry::has<Owned..., Get...>, &registry::accept<0, Exclude...>, Owned...>(*this, entity);
                 });
             }
 
-            return { &cdata[ctype].last, &pool<Owned>()..., &pool<Get>()... };
+            return { &cdata[ctype].next, &pool<Owned>()..., &pool<Get>()... };
         }
     }
 
