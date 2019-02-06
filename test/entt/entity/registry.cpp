@@ -415,8 +415,6 @@ TEST(Registry, NonOwningGroupInitOnFirstUse) {
     group.each([&cnt](auto...) { ++cnt; });
 
     ASSERT_EQ(cnt, decltype(group)::size_type{2});
-    ASSERT_FALSE(registry.has_group<int>());
-    ASSERT_FALSE(registry.has_group<char>());
 }
 
 TEST(Registry, NonOwningGroupInitOnAssign) {
@@ -438,8 +436,6 @@ TEST(Registry, NonOwningGroupInitOnAssign) {
     group.each([&cnt](auto...) { ++cnt; });
 
     ASSERT_EQ(cnt, decltype(group)::size_type{2});
-    ASSERT_FALSE(registry.has_group<int>());
-    ASSERT_FALSE(registry.has_group<char>());
 }
 
 TEST(Registry, FullOwningGroupInitOnFirstUse) {
@@ -461,8 +457,6 @@ TEST(Registry, FullOwningGroupInitOnFirstUse) {
     group.each([&cnt](auto...) { ++cnt; });
 
     ASSERT_EQ(cnt, decltype(group)::size_type{2});
-    ASSERT_TRUE(registry.has_group<int>());
-    ASSERT_TRUE(registry.has_group<char>());
 }
 
 TEST(Registry, FullOwningGroupInitOnAssign) {
@@ -484,8 +478,6 @@ TEST(Registry, FullOwningGroupInitOnAssign) {
     group.each([&cnt](auto...) { ++cnt; });
 
     ASSERT_EQ(cnt, decltype(group)::size_type{2});
-    ASSERT_TRUE(registry.has_group<int>());
-    ASSERT_TRUE(registry.has_group<char>());
 }
 
 TEST(Registry, PartialOwningGroupInitOnFirstUse) {
@@ -507,8 +499,6 @@ TEST(Registry, PartialOwningGroupInitOnFirstUse) {
     group.each([&cnt](auto...) { ++cnt; });
 
     ASSERT_EQ(cnt, decltype(group)::size_type{2});
-    ASSERT_TRUE(registry.has_group<int>());
-    ASSERT_FALSE(registry.has_group<char>());
 
 }
 
@@ -531,8 +521,6 @@ TEST(Registry, PartialOwningGroupInitOnAssign) {
     group.each([&cnt](auto...) { ++cnt; });
 
     ASSERT_EQ(cnt, decltype(group)::size_type{2});
-    ASSERT_TRUE(registry.has_group<int>());
-    ASSERT_FALSE(registry.has_group<char>());
 }
 
 TEST(Registry, CleanViewAfterReset) {

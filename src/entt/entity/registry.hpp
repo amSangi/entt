@@ -60,33 +60,46 @@ template<typename Entity = std::uint32_t>
 class registry {
     using component_family = family<struct internal_registry_component_family>;
     using handler_family = family<struct internal_registry_handler_family>;
+    using group_family = family<struct internal_registry_group_family>;
     using signal_type = sigh<void(registry &, const Entity)>;
     using traits_type = entt_traits<Entity>;
 
-    struct cdata_t {
+    struct signals {
         signal_type construction;
         signal_type destruction;
-        typename sparse_set<Entity>::size_type next;
-        sparse_set<Entity> *group;
+    };
+
+    struct basic_descriptor {
+        virtual ~basic_descriptor() = default;
+        virtual bool contains(typename component_family::family_type) = 0;
+        typename sparse_set<Entity>::size_type last;
+    };
+
+    template<typename... Owned>
+    struct descriptor: basic_descriptor {
+        bool contains(typename component_family::family_type ctype) override {
+            return ((ctype == type<Owned>()) || ...);
+        }
     };
 
     template<auto Has, auto Accept, typename... Owned>
     static void induce_if(registry &reg, const Entity entity) {
         if((reg.*Has)(entity) && (reg.*Accept)(entity)) {
-            (std::swap(reg.pool<Owned>().get(entity), reg.pool<Owned>().raw()[reg.cdata[reg.type<Owned>()].next]), ...);
-            (reg.pool<Owned>().swap(reg.pools[reg.type<Owned>()]->get(entity), reg.cdata[reg.type<Owned>()].next), ...);
-            (reg.cdata[reg.type<Owned>()].next++, ...);
+            const auto curr = reg.descriptors[handler_family::type<Owned...>]->last++;
+            (std::swap(reg.pool<Owned>().get(entity), reg.pool<Owned>().raw()[curr]), ...);
+            (reg.pool<Owned>().swap(reg.pools[reg.type<Owned>()]->get(entity), curr), ...);
         }
     }
 
     template<typename... Owned>
     static void discard_if(registry &reg, const Entity entity) {
         const auto ctype = type<std::tuple_element_t<0, std::tuple<Owned...>>>();
+        const auto dtype = handler_family::type<Owned...>;
 
-        if(reg.pools[ctype]->has(entity) && reg.pools[ctype]->get(entity) < reg.cdata[ctype].next) {
-            (--reg.cdata[reg.type<Owned>()].next, ...);
-            (std::swap(reg.pool<Owned>().get(entity), reg.pool<Owned>().raw()[reg.cdata[reg.type<Owned>()].next]), ...);
-            (reg.pool<Owned>().swap(reg.pools[reg.type<Owned>()]->get(entity), reg.cdata[reg.type<Owned>()].next), ...);
+        if(reg.pools[ctype]->has(entity) && reg.pools[ctype]->get(entity) < reg.descriptors[dtype]->last) {
+            const auto curr = --reg.descriptors[dtype]->last;
+            (std::swap(reg.pool<Owned>().get(entity), reg.pool<Owned>().raw()[curr]), ...);
+            (reg.pool<Owned>().swap(reg.pools[reg.type<Owned>()]->get(entity), curr), ...);
         }
     }
 
@@ -121,13 +134,11 @@ class registry {
     auto & assure() const {
         if(!(type<Component>() < pools.size())) {
             pools.resize(type<Component>()+1);
-            cdata.resize(type<Component>()+1);
+            sighs.resize(type<Component>()+1);
         }
 
         if(!pools[type<Component>()]) {
             pools[type<Component>()] = std::make_unique<sparse_set<Entity, std::decay_t<Component>>>();
-            cdata[type<Component>()].group = nullptr;
-            cdata[type<Component>()].next = {};
         }
 
         return pool<Component>();
@@ -503,7 +514,7 @@ public:
             auto &cpool = pools[pos-1];
 
             if(cpool && cpool->has(entity)) {
-                cdata[pos-1].destruction.publish(*this, entity);
+                sighs[pos-1].destruction.publish(*this, entity);
                 cpool->destroy(entity);
             }
         };
@@ -565,7 +576,7 @@ public:
     Component & assign(const entity_type entity, Args &&... args) {
         assert(valid(entity));
         auto &component = assure<Component>().construct(entity, std::forward<Args>(args)...);
-        cdata[type<Component>()].construction.publish(*this, entity);
+        sighs[type<Component>()].construction.publish(*this, entity);
         return component;
     }
 
@@ -585,7 +596,7 @@ public:
     template<typename Component>
     void remove(const entity_type entity) {
         assert(valid(entity));
-        cdata[type<Component>()].destruction.publish(*this, entity);
+        sighs[type<Component>()].destruction.publish(*this, entity);
         pool<Component>().destroy(entity);
     }
 
@@ -673,7 +684,7 @@ public:
 
         if(!comp) {
             comp = &cpool.construct(entity, std::forward<Component>(component));
-            cdata[type<Component>()].construction.publish(*this, entity);
+            sighs[type<Component>()].construction.publish(*this, entity);
         }
 
         return *comp;
@@ -772,7 +783,7 @@ public:
             *comp = std::decay_t<Component>{std::forward<Args>(args)...};
         } else {
             comp = &cpool.construct(entity, std::forward<Args>(args)...);
-            cdata[type<Component>()].construction.publish(*this, entity);
+            sighs[type<Component>()].construction.publish(*this, entity);
         }
 
         return *comp;
@@ -804,7 +815,7 @@ public:
     template<typename Component>
     sink_type construction() ENTT_NOEXCEPT {
         assure<Component>();
-        return cdata[type<Component>()].construction.sink();
+        return sighs[type<Component>()].construction.sink();
     }
 
     /**
@@ -833,7 +844,7 @@ public:
     template<typename Component>
     sink_type destruction() ENTT_NOEXCEPT {
         assure<Component>();
-        return cdata[type<Component>()].destruction.sink();
+        return sighs[type<Component>()].destruction.sink();
     }
 
     /**
@@ -886,8 +897,11 @@ public:
      */
     template<typename Component, typename Compare, typename Sort = std_sort, typename... Args>
     void sort(Compare compare, Sort sort = Sort{}, Args &&... args) {
+        assert(std::none_of(descriptors.cbegin(), descriptors.cend(), [](const auto &descriptor) {
+            return descriptor->contains(type<Component>());
+        }));
+
         auto &cpool = assure<Component>();
-        assert(!cdata[type<Component>()].group);
         cpool.sort(std::move(compare), std::move(sort), std::forward<Args>(args)...);
     }
 
@@ -930,8 +944,11 @@ public:
      */
     template<typename To, typename From>
     void sort() {
+        assert(std::none_of(descriptors.cbegin(), descriptors.cend(), [](const auto &descriptor) {
+            return descriptor->contains(type<To>());
+        }));
+
         auto &cpool = assure<To>();
-        assert(!cdata[type<To>()].group);
         cpool.respect(assure<From>());
     }
 
@@ -955,7 +972,7 @@ public:
         auto &cpool = assure<Component>();
 
         if(cpool.has(entity)) {
-            cdata[type<Component>()].destruction.publish(*this, entity);
+            sighs[type<Component>()].destruction.publish(*this, entity);
             cpool.destroy(entity);
         }
     }
@@ -971,14 +988,19 @@ public:
     template<typename Component>
     void reset() {
         auto &cpool = assure<Component>();
-        auto &curr = cdata[type<Component>()];
+        auto &sigh = sighs[type<Component>()].destruction;
 
-        if(curr.destruction.empty()) {
-            curr.next = {};
+        if(sigh.empty()) {
             cpool.reset();
+
+            for(auto &&descriptor: descriptors) {
+                if(descriptor->contains(type<Component>())) {
+                    descriptor->last = {};
+                }
+            }
         } else {
             for(const auto entity: static_cast<const sparse_set<entity_type> &>(cpool)) {
-                curr.destruction.publish(*this, entity);
+                sigh.publish(*this, entity);
                 cpool.destroy(entity);
             }
         }
@@ -1131,17 +1153,6 @@ public:
     }
 
     /**
-     * @brief Checks if a component is already owned by a group.
-     * @tparam Component Type of component in which one is interested.
-     * @return True if the component is owned by a group, false otherwise.
-     */
-    template<typename Component>
-    bool has_group() const ENTT_NOEXCEPT {
-        assure<Component>();
-        return cdata[type<Component>()].group;
-    }
-
-    /**
      * @brief Returns a group for the given components.
      *
      * This kind of objects are created on the fly and share with the registry
@@ -1189,10 +1200,10 @@ public:
                 handlers[htype] = std::make_unique<sparse_set<entity_type>>();
                 auto *direct = handlers[htype].get();
 
-                ((cdata[type<Get>()].destruction.sink().template connect<&registry::destroy_if<handler_type>>()), ...);
-                ((cdata[type<Get>()].construction.sink().template connect<&construct_if<&registry::has<Get...>, &registry::accept<0, Exclude...>, handler_type>>()), ...);
-                ((cdata[type<Exclude>()].destruction.sink().template connect<&construct_if<&registry::has<Get...>, &registry::accept<1, Exclude...>, handler_type>>()), ...);
-                ((cdata[type<Exclude>()].construction.sink().template connect<&registry::destroy_if<handler_type>>()), ...);
+                ((sighs[type<Get>()].destruction.sink().template connect<&registry::destroy_if<handler_type>>()), ...);
+                ((sighs[type<Get>()].construction.sink().template connect<&construct_if<&registry::has<Get...>, &registry::accept<0, Exclude...>, handler_type>>()), ...);
+                ((sighs[type<Exclude>()].destruction.sink().template connect<&construct_if<&registry::has<Get...>, &registry::accept<1, Exclude...>, handler_type>>()), ...);
+                ((sighs[type<Exclude>()].construction.sink().template connect<&registry::destroy_if<handler_type>>()), ...);
 
                 for(const auto entity: view<Get...>()) {
                     if(accept<0, Exclude...>(entity)) {
@@ -1203,21 +1214,27 @@ public:
 
             return { handlers[htype].get(), &pool<Get>()... };
         } else {
-            const auto ctype = type<std::tuple_element_t<0, std::tuple<Owned...>>>();
-            // TODO group isn't enough to guarantee that the group is the right one
-            assert(((cdata[type<Owned>()].group == cdata[ctype].group) && ...));
+            const auto dtype = handler_family::type<Owned...>;
 
-            if(!cdata[ctype].group) {
-                ((cdata[type<Owned>()].group = pools[ctype].get()), ...);
+            if(!(dtype < descriptors.size())) {
+                descriptors.resize(dtype + 1);
+            }
 
-                (cdata[type<Owned>()].construction.sink().template connect<&induce_if<&registry::has<Owned..., Get...>, &registry::accept<0, Exclude...>, Owned...>>(), ...);
-                (cdata[type<Get>()].construction.sink().template connect<&induce_if<&registry::has<Owned..., Get...>, &registry::accept<0, Exclude...>, Owned...>>(), ...);
+            if(!descriptors[dtype]) {
+                assert(std::none_of(descriptors.cbegin(), descriptors.cend(), [](const auto &descriptor) {
+                    return descriptor && (descriptor->contains(type<Owned>()) || ...);
+                }));
 
-                (cdata[type<Owned>()].destruction.sink().template connect<&discard_if<Owned...>>(), ...);
-                (cdata[type<Get>()].destruction.sink().template connect<&discard_if<Owned...>>(), ...);
+                descriptors[dtype] = std::make_unique<descriptor<Owned...>>();
 
-                (cdata[type<Exclude>()].destruction.sink().template connect<&induce_if<&registry::has<Owned..., Get...>, &registry::accept<1, Exclude...>, Owned...>>(), ...);
-                (cdata[type<Exclude>()].construction.sink().template connect<&discard_if<Owned...>>(), ...);
+                (sighs[type<Owned>()].construction.sink().template connect<&induce_if<&registry::has<Owned..., Get...>, &registry::accept<0, Exclude...>, Owned...>>(), ...);
+                (sighs[type<Get>()].construction.sink().template connect<&induce_if<&registry::has<Owned..., Get...>, &registry::accept<0, Exclude...>, Owned...>>(), ...);
+
+                (sighs[type<Owned>()].destruction.sink().template connect<&discard_if<Owned...>>(), ...);
+                (sighs[type<Get>()].destruction.sink().template connect<&discard_if<Owned...>>(), ...);
+
+                (sighs[type<Exclude>()].destruction.sink().template connect<&induce_if<&registry::has<Owned..., Get...>, &registry::accept<1, Exclude...>, Owned...>>(), ...);
+                (sighs[type<Exclude>()].construction.sink().template connect<&discard_if<Owned...>>(), ...);
 
                 const auto *cpool = std::min({ pools[type<Owned>()].get()... }, [](const auto *lhs, const auto *rhs) {
                     return lhs->size() < rhs->size();
@@ -1228,7 +1245,7 @@ public:
                 });
             }
 
-            return { &cdata[ctype].next, &pool<Owned>()..., &pool<Get>()... };
+            return { &descriptors[dtype]->last, &pool<Owned>()..., &pool<Get>()... };
         }
     }
 
@@ -1291,6 +1308,15 @@ public:
      * If no components are provided, the registry will try to clone all the
      * existing pools.
      *
+     * @note
+     * There isn't an efficient way to know if all the entities are assigned at
+     * least one component once copied. Therefore, there may be orphans. It is
+     * up to the caller to clean up the registry if necessary.
+     *
+     * @note
+     * Listeners and groups aren't copied. It is up to the caller to connect the
+     * listeners of interest to the new registry and to set up groups.
+     *
      * @warning
      * Attempting to clone components that aren't copyable can result in
      * unexpected behaviors.<br/>
@@ -1298,11 +1324,6 @@ public:
      * are provided at the call site. Otherwise, an assertion will abort the
      * execution at runtime in debug mode in case one or more pools cannot be
      * cloned.
-     *
-     * @note
-     * There isn't an efficient way to know if all the entities are assigned at
-     * least one component once copied. Therefore, there may be orphans. It is
-     * up to the caller to clean up the registry if necessary.
      *
      * @tparam Component Types of components to clone.
      * @return A fresh copy of the registry.
@@ -1312,7 +1333,7 @@ public:
         registry other;
 
         other.pools.resize(pools.size());
-        other.cdata.resize(pools.size());
+        other.sighs.resize(pools.size());
 
         if(sizeof...(Component)) {
             static_assert(std::conjunction_v<std::is_copy_constructible<Component>...>);
@@ -1331,8 +1352,7 @@ public:
 
         other.next = next;
         other.available = available;
-        other.entities.resize(entities.size());
-        std::copy(entities.cbegin(), entities.cend(), other.entities.begin());
+        other.entities = entities;
 
         return other;
     }
@@ -1405,8 +1425,9 @@ public:
 
 private:
     std::vector<std::unique_ptr<sparse_set<Entity>>> handlers;
+    std::vector<std::unique_ptr<basic_descriptor>> descriptors;
     mutable std::vector<std::unique_ptr<sparse_set<Entity>>> pools;
-    mutable std::vector<cdata_t> cdata;
+    mutable std::vector<signals> sighs;
     std::vector<entity_type> entities;
     size_type available{};
     entity_type next{};
