@@ -545,51 +545,51 @@ TEST(NonOwningGroup, ExcludedComponents) {
 }
 
 TEST(OwningGroup, ExcludedComponents) {
-    // TODO entt::registry<> registry;
-    // TODO
-    // TODO const auto e0 = registry.create();
-    // TODO registry.assign<int>(e0, 0);
-    // TODO
-    // TODO const auto e1 = registry.create();
-    // TODO registry.assign<int>(e1, 1);
-    // TODO registry.assign<char>(e1);
-    // TODO
-    // TODO const auto group = registry.group<int>(entt::get<>, entt::exclude<char>);
-    // TODO
-    // TODO const auto e2 = registry.create();
-    // TODO registry.assign<int>(e2, 2);
-    // TODO
-    // TODO const auto e3 = registry.create();
-    // TODO registry.assign<int>(e3, 3);
-    // TODO registry.assign<char>(e3);
-    // TODO
-    // TODO for(const auto entity: group) {
-    // TODO     if(entity == e0) {
-    // TODO         ASSERT_EQ(group.get<int>(e0), 0);
-    // TODO     } else if(entity == e2) {
-    // TODO         ASSERT_EQ(group.get<int>(e2), 2);
-    // TODO     } else {
-    // TODO         FAIL();
-    // TODO     }
-    // TODO }
-    // TODO
-    // TODO registry.assign<char>(e0);
-    // TODO registry.assign<char>(e2);
-    // TODO
-    // TODO ASSERT_TRUE(group.empty());
-    // TODO
-    // TODO registry.remove<char>(e1);
-    // TODO registry.remove<char>(e3);
-    // TODO
-    // TODO for(const auto entity: group) {
-    // TODO     if(entity == e1) {
-    // TODO         ASSERT_EQ(group.get<int>(e1), 1);
-    // TODO     } else if(entity == e3) {
-    // TODO         ASSERT_EQ(group.get<int>(e3), 3);
-    // TODO     } else {
-    // TODO         FAIL();
-    // TODO     }
-    // TODO }
+    entt::registry<> registry;
+
+    const auto e0 = registry.create();
+    registry.assign<int>(e0, 0);
+
+    const auto e1 = registry.create();
+    registry.assign<int>(e1, 1);
+    registry.assign<char>(e1);
+
+    const auto group = registry.group<int>(entt::exclude<char>);
+
+    const auto e2 = registry.create();
+    registry.assign<int>(e2, 2);
+
+    const auto e3 = registry.create();
+    registry.assign<int>(e3, 3);
+    registry.assign<char>(e3);
+
+    for(const auto entity: group) {
+        if(entity == e0) {
+            ASSERT_EQ(group.get<int>(e0), 0);
+        } else if(entity == e2) {
+            ASSERT_EQ(group.get<int>(e2), 2);
+        } else {
+            FAIL();
+        }
+    }
+
+    registry.assign<char>(e0);
+    registry.assign<char>(e2);
+
+    ASSERT_TRUE(group.empty());
+
+    registry.remove<char>(e1);
+    registry.remove<char>(e3);
+
+    for(const auto entity: group) {
+        if(entity == e1) {
+            ASSERT_EQ(group.get<int>(e1), 1);
+        } else if(entity == e3) {
+            ASSERT_EQ(group.get<int>(e3), 3);
+        } else {
+            FAIL();
+        }
+    }
 }
 
 TEST(NonOwningGroup, EmptyAndNonEmptyTypes) {
@@ -648,30 +648,38 @@ TEST(OwningGroup, EmptyAndNonEmptyTypes) {
 
 TEST(NonOwningGroup, TrackEntitiesOnComponentDestruction) {
     entt::registry<> registry;
+    const entt::registry<> &cregistry = registry;
     const auto group = registry.group<>(entt::get<int>, entt::exclude<char>);
+    const auto cgroup = cregistry.group<>(entt::get<const int>, entt::exclude<char>);
 
     const auto entity = registry.create();
     registry.assign<int>(entity);
     registry.assign<char>(entity);
 
     ASSERT_TRUE(group.empty());
+    ASSERT_TRUE(cgroup.empty());
 
     registry.remove<char>(entity);
 
     ASSERT_FALSE(group.empty());
+    ASSERT_FALSE(cgroup.empty());
 }
 
 TEST(OwningGroup, TrackEntitiesOnComponentDestruction) {
     entt::registry<> registry;
-    const auto group = registry.group<int>(entt::get<>, entt::exclude<char>);
+    const entt::registry<> &cregistry = registry;
+    const auto group = registry.group<int>(entt::exclude<char>);
+    const auto cgroup = cregistry.group<const int>(entt::exclude<char>);
 
     const auto entity = registry.create();
     registry.assign<int>(entity);
     registry.assign<char>(entity);
 
     ASSERT_TRUE(group.empty());
+    ASSERT_TRUE(cgroup.empty());
 
     registry.remove<char>(entity);
 
     ASSERT_FALSE(group.empty());
+    ASSERT_FALSE(cgroup.empty());
 }

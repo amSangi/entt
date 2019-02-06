@@ -35,7 +35,7 @@ namespace entt {
  * @tparam Type List of types.
  */
 template<typename... Type>
-using exclude_t = type_list<Type...>;
+struct exclude_t: type_list<Type...> {};
 
 
 /**
@@ -63,7 +63,7 @@ class registry {
     using signal_type = sigh<void(registry &, const Entity)>;
     using traits_type = entt_traits<Entity>;
 
-    struct support_data {
+    struct cdata_t {
         signal_type construction;
         signal_type destruction;
         typename sparse_set<Entity>::size_type next;
@@ -1169,7 +1169,7 @@ public:
      * @return A newly created group.
      */
     template<typename... Owned, typename... Get, typename... Exclude>
-    entt::group<Entity, get_t<Get...>, Owned...> group(get_t<Get...> = {}, exclude_t<Exclude...> = {}) {
+    entt::group<Entity, get_t<Get...>, Owned...> group(get_t<Get...>, exclude_t<Exclude...> = {}) {
         static_assert(sizeof...(Owned) + sizeof...(Get) + sizeof...(Exclude) > 1);
         static_assert(sizeof...(Owned) + sizeof...(Get));
 
@@ -1191,7 +1191,7 @@ public:
 
                 ((cdata[type<Get>()].destruction.sink().template connect<&registry::destroy_if<handler_type>>()), ...);
                 ((cdata[type<Get>()].construction.sink().template connect<&construct_if<&registry::has<Get...>, &registry::accept<0, Exclude...>, handler_type>>()), ...);
-                /* TODO WRONG */ ((cdata[type<Exclude>()].destruction.sink().template connect<&construct_if<&registry::has<Get...>, &registry::accept<1, Exclude...>, handler_type>>()), ...);
+                ((cdata[type<Exclude>()].destruction.sink().template connect<&construct_if<&registry::has<Get...>, &registry::accept<1, Exclude...>, handler_type>>()), ...);
                 ((cdata[type<Exclude>()].construction.sink().template connect<&registry::destroy_if<handler_type>>()), ...);
 
                 for(const auto entity: view<Get...>()) {
@@ -1204,6 +1204,7 @@ public:
             return { handlers[htype].get(), &pool<Get>()... };
         } else {
             const auto ctype = type<std::tuple_element_t<0, std::tuple<Owned...>>>();
+            // TODO group isn't enough to guarantee that the group is the right one
             assert(((cdata[type<Owned>()].group == cdata[ctype].group) && ...));
 
             if(!cdata[ctype].group) {
@@ -1215,7 +1216,7 @@ public:
                 (cdata[type<Owned>()].destruction.sink().template connect<&discard_if<Owned...>>(), ...);
                 (cdata[type<Get>()].destruction.sink().template connect<&discard_if<Owned...>>(), ...);
 
-                /* TODO WRONG */ (cdata[type<Exclude>()].destruction.sink().template connect<&induce_if<&registry::has<Owned..., Get...>, &registry::accept<1, Exclude...>, Owned...>>(), ...);
+                (cdata[type<Exclude>()].destruction.sink().template connect<&induce_if<&registry::has<Owned..., Get...>, &registry::accept<1, Exclude...>, Owned...>>(), ...);
                 (cdata[type<Exclude>()].construction.sink().template connect<&discard_if<Owned...>>(), ...);
 
                 const auto *cpool = std::min({ pools[type<Owned>()].get()... }, [](const auto *lhs, const auto *rhs) {
@@ -1233,9 +1234,21 @@ public:
 
     /*! @copydoc group */
     template<typename... Owned, typename... Get, typename... Exclude>
-    inline entt::group<Entity, get_t<Get...>, Owned...> group(get_t<Get...> = {}, exclude_t<Exclude...> = {}) const {
+    inline entt::group<Entity, get_t<Get...>, Owned...> group(get_t<Get...>, exclude_t<Exclude...> = {}) const {
         static_assert(std::conjunction_v<std::is_const<Owned>..., std::is_const<Get>...>);
         return const_cast<registry *>(this)->group<Owned...>(entt::get<Get...>, exclude<Exclude...>);
+    }
+
+    /*! @copydoc group */
+    template<typename... Owned, typename... Exclude>
+    inline entt::group<Entity, get_t<>, Owned...> group(exclude_t<Exclude...> = {}) {
+        return group<Owned...>(entt::get<>, exclude<Exclude...>);
+    }
+
+    /*! @copydoc group */
+    template<typename... Owned, typename... Exclude>
+    inline entt::group<Entity, get_t<>, Owned...> group(exclude_t<Exclude...> = {}) const {
+        return group<Owned...>(entt::get<>, exclude<Exclude...>);
     }
 
     /**
@@ -1393,7 +1406,7 @@ public:
 private:
     std::vector<std::unique_ptr<sparse_set<Entity>>> handlers;
     mutable std::vector<std::unique_ptr<sparse_set<Entity>>> pools;
-    mutable std::vector<support_data> cdata;
+    mutable std::vector<cdata_t> cdata;
     std::vector<entity_type> entities;
     size_type available{};
     entity_type next{};

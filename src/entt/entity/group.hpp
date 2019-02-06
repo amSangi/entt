@@ -27,7 +27,7 @@ class registry;
  * @tparam Type List of types.
  */
 template<typename... Type>
-using get_t = type_list<Type...>;
+struct get_t: type_list<Type...> {};
 
 
 /**
@@ -555,11 +555,11 @@ public:
      */
     template<typename Func>
     inline void each(Func func) const {
-        auto len = *length;
-        auto raw = std::make_tuple((std::get<pool_type<Owned> *>(pools)->end() - len)...);
-        [[maybe_unused]] auto data = std::get<0>(pools)->sparse_set<entity_type>::end() - len;
+        auto raw = std::make_tuple((std::get<pool_type<Owned> *>(pools)->end() - *length)...);
+        [[maybe_unused]] auto data = std::get<0>(pools)->sparse_set<entity_type>::end() - *length;
+        const auto cend = std::get<0>(pools)->end();
 
-        for(; len; --len) {
+        while(std::get<0>(raw) != cend) {
             if constexpr(std::is_invocable_v<Func, std::add_lvalue_reference_t<Owned>..., std::add_lvalue_reference_t<Get>...>) {
                 if constexpr(sizeof...(Get)) {
                     const auto entity = *(data++);
