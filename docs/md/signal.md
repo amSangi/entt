@@ -6,9 +6,8 @@
 # Table of Contents
 
 * [Introduction](#introduction)
-* [Signals](#signals)
 * [Delegate](#delegate)
-  * [Currying and free functions](#currying-and-free-functions)
+* [Signals](#signals)
 * [Event dispatcher](#event-dispatcher)
 * [Event emitter](#event-emitter)
 <!--
@@ -29,128 +28,19 @@ allocations under the hood and this could be problematic sometimes. Furthermore,
 it solves a problem but may not adapt well to other requirements that may arise
 from time to time.
 
-In case that the flexibility and potential of an `std::function` are not
-required or where you are looking for something different, `EnTT` offers a full
-set of classes to solve completely different problems.
-
-# Signals
-
-Signal handlers work with naked pointers, function pointers and pointers to
-member functions. Listeners can be any kind of objects and users are in charge
-of connecting and disconnecting them from a signal to avoid crashes due to
-different lifetimes. On the other side, performance shouldn't be affected that
-much by the presence of such a signal handler.<br/>
-A signal handler can be used as a private data member without exposing any
-_publish_ functionality to the clients of a class. The basic idea is to impose a
-clear separation between the signal itself and its _sink_ class, that is a tool
-to be used to connect and disconnect listeners on the fly.
-
-The API of a signal handler is straightforward. The most important thing is that
-it comes in two forms: with and without a collector. In case a signal is
-associated with a collector, all the values returned by the listeners can be
-literally _collected_ and used later by the caller. Otherwise it works just like
-a plain signal that emits events from time to time.<br/>
-
-**Note**: collectors are allowed only in case of function types whose the return
-type isn't `void` for obvious reasons.
-
-To create instances of signal handlers there exist mainly two ways:
-
-```cpp
-// no collector type
-entt::sigh<void(int, char)> signal;
-
-// explicit collector type
-entt::sigh<void(int, char), my_collector<bool>> collector;
-```
-
-As expected, they offer all the basic functionalities required to know how many
-listeners they contain (`size`) or if they contain at least a listener (`empty`)
-and even to swap two signal handlers (`swap`).
-
-Besides them, there are member functions to use both to connect and disconnect
-listeners in all their forms by means of a sink:
-
-```cpp
-void foo(int, char) { /* ... */ }
-
-struct listener {
-    void bar(const int &, char) { /* ... */ }
-};
-
-// ...
-
-listener instance;
-
-signal.sink().connect<&foo>();
-signal.sink().connect<&listener::bar>(&instance);
-
-// ...
-
-// disconnects a free function
-signal.sink().disconnect<&foo>();
-
-// disconnect a member function of an instance
-signal.sink().disconnect<&listener::bar>(&instance);
-
-// discards all the listeners at once
-signal.sink().disconnect();
-```
-
-As shown above, listeners do not have to strictly follow the signature of the
-signal. As long as a listener can be invoked with the given arguments to yield a
-result that is convertible to the given result type, everything works just fine.
-
-Once listeners are attached (or even if there are no listeners at all), events
-and data in general can be published through a signal by means of the `publish`
-member function:
-
-```cpp
-signal.publish(42, 'c');
-```
-
-To collect data, the `collect` member function should be used instead. Below is
-a minimal example to show how to use it:
-
-```cpp
-struct my_collector {
-    std::vector<int> vec{};
-
-    bool operator()(int v) noexcept {
-        vec.push_back(v);
-        return true;
-    }
-};
-
-int f() { return 0; }
-int g() { return 1; }
-
-// ...
-
-entt::sigh<int(), my_collector<int>> signal;
-
-signal.sink().connect<&f>();
-signal.sink().connect<&g>();
-
-my_collector collector = signal.collect();
-
-assert(collector.vec[0] == 0);
-assert(collector.vec[1] == 1);
-```
-
-A collector must expose a function operator that accepts as an argument a type
-to which the return type of the listeners can be converted. Moreover, it has to
-return a boolean value that is false to stop collecting data, true otherwise.
-This way one can avoid calling all the listeners in case it isn't necessary.
+In case that the flexibility and power of an `std::function` isn't required or
+if the price to pay for them is too high,` EnTT` offers a complete set of
+lightweight classes to solve the same and many other problems.
 
 # Delegate
 
-A delegate can be used as general purpose invoker with no memory overhead for
-free functions, members provided along with an instance on which to invoke them,
-lambdas and functors in general.<br/>
+A delegate can be used as a general purpose invoker with no memory overhead for
+free functions and members provided along with an instance on which to invoke
+them.<br/>
 It does not claim to be a drop-in replacement for an `std::function`, so do not
-expect to use it whenever an `std::function` fits well. However, it can be used
-to send opaque delegates around to be used to invoke functions as needed.
+expect to use it whenever an `std::function` fits well. That said, it's most
+likely even a better fit than an `std::function` in a lot of cases, so expect to
+use it quite a lot anyway.
 
 The interface is trivial. It offers a default constructor to create empty
 delegates:
@@ -161,7 +51,7 @@ entt::delegate<int(int)> delegate{};
 
 All what is needed to create an instance is to specify the type of the function
 the delegate will _contain_, that is the signature of the free function or the
-member function one wants to assign to it.
+member one wants to assign to it.
 
 Attempting to use an empty delegate by invoking its function call operator
 results in undefined behavior or most likely a crash. Before to use a delegate,
@@ -184,21 +74,46 @@ my_struct instance;
 delegate.connect<&my_struct::f>(&instance);
 ```
 
-The delegate class accepts also data members if required. In this case, the
+The delegate class accepts also data members, if needed. In this case, the
 function type of the delegate is such that the parameter list is empty and the
-value of the data member is at least convertible to the return type.<br/>
-Moreover, it can work with invokable objects in general (lambdas or functors),
-as long as they are trivially destructible and the size fits the one of
-`void *`. As an example, a lambda that captures a pointer or an integer value
-can be used with a delegate:
+value of the data member is at least convertible to the return type.
+
+Free functions having type equivalent to `void(T *, args...)` are accepted as
+well. In this case, `T *` is considered a payload and the function will receive
+it back every time it's invoked. In other terms, this works just fine with the
+above definition:
 
 ```cpp
-delegate.connect([value = int_var](int i) { return value * i; });
+void g(const char *c, int i) { /* ... */ }
+const char c = 'c';
+
+delegate.connect<&g>(&c);
+delegate(42);
 ```
 
-To create and initialize a delegate at once, there are also some specialized
+The function `g` will be invoked with a pointer to `c` and `42`. However, the
+function type of the delegate is still `void(int)`. This is also the signature
+of its function call operator.
+
+Another interesting aspect of the delegate class is that it accepts also
+functions with a list of parameters that is shorter than that of the function
+type used to specialize the delegate itself.<br/>
+The following code is therefore perfectly valid:
+
+```cpp
+void g() { /* ... */ }
+delegate.connect<&g>();
+delegate(42);
+```
+
+Where the function type of the delegate is `void(int)` as above. It goes without
+saying that the extra arguments are silently discarded internally.<br/>v
+This is a nice-to-have feature in a lot of cases, as an example when the
+`delegate` class is used as a building block of a signal-slot system.
+
+To create and initialize a delegate at once, there are a few specialized
 constructors. Because of the rules of the language, the listener is provided by
-means of the `entt::connect_arg` class template:
+means of the `entt::connect_arg` variable template:
 
 ```cpp
 entt::delegate<int(int)> func{entt::connect_arg<&f>};
@@ -206,8 +121,8 @@ entt::delegate<int(int)> func{entt::connect_arg<&f>};
 
 Aside `connect`, a `disconnect` counterpart isn't provided. Instead, there
 exists a `reset` member function to use to clear a delegate.<br/>
-To know if it's empty instead, the delegate can be used explicitly in every
-conditional statement:
+To know if a delegate is empty, it can be used explicitly in every conditional
+statement:
 
 ```cpp
 if(delegate) {
@@ -216,57 +131,145 @@ if(delegate) {
 ```
 
 Finally, to invoke a delegate, the function call operator is the way to go as
-usual:
+already shown in the examples above:
 
 ```cpp
 auto ret = delegate(42);
 ```
 
-As shown above, listeners do not have to strictly follow the signature of the
+In all cases, the listeners don't have to strictly follow the signature of the
 delegate. As long as a listener can be invoked with the given arguments to yield
 a result that is convertible to the given result type, everything works just
 fine.
 
-Probably too much small and pretty poor of functionalities, but the delegate
-class can help in a lot of cases and it has shown that it is worth keeping it
-within the library.
+# Signals
 
-## Currying and free functions
+Signal handlers work with naked pointers, function pointers and pointers to
+members. Listeners can be any kind of objects and users are in charge of
+connecting and disconnecting them from a signal to avoid crashes due to
+different lifetimes. On the other side, performance shouldn't be affected that
+much by the presence of such a signal handler.<br/>
+Signals make use of delegates internally and therefore they undergo the same
+rules and offer similar functionalities. It may be a good idea to consult the
+documentation of the `delegate` class for further information.
 
-The delegate class comes with a rather obscure feature to be considered as an
-_advanced mode_, that is its limited support for curried free functions.
+A signal handler can be used as a private data member without exposing any
+_publish_ functionality to the clients of a class. The basic idea is to impose a
+clear separation between the signal itself and the `sink` class, that is a tool
+to be used to connect and disconnect listeners on the fly.
 
-Consider the following definition:
-
-```cpp
-entt::delegate<void(int)> delegate{};
-```
-
-As shown previously, it accepts functions having type `void(int)`. However, we
-can do something more in this case, because of how the delegate class is
-implemented internally (that is something that goes beyond the purposes of this
-document).<br/>
-In particular, the delegate accepts also functions having type equivalent to
-`void(T &, int)`, as long as `sizeof(T)` is lower than or equal to
-`sizeof(void *)`. The first parameter is stored directly by the delegate class
-and passed to the connected function when needed.
-
-In other terms, this works as well with the above definition:
+The API of a signal handler is straightforward. The most important thing is that
+it comes in two forms: with and without a collector. In case a signal is
+provided with a collector, all the values returned by the listeners can be
+literally _collected_ and used later by the caller. Otherwise it works just like
+a plain signal that emits events from time to time.<br/>
+To create instances of signal handlers it is sufficient to provide the type of
+function to which they refer:
 
 ```cpp
-void g(char c, int i) { /* ... */ }
-
-delegate.connect<&g>('c');
-delegate(42);
+entt::sigh<void(int, char)> signal;
 ```
 
-In this case, the function `g` is invoked with parameters `'c'` and `42`.
-However, the function type of the delegate is still `void(int)`, mainly because
-this is also the signature of its function call operator.<br/>
-When the curried function receives the linked parameter by reference, it can
-modify it and the new value will be stored in place of the previous one. It's
-highly discouraged to accept the parameter by reference, unless you know exactly
-what you're doing. Prefer accepting it by value if possible.
+Signals offer all the basic functionalities required to know how many listeners
+they contain (`size`) or if they contain at least a listener (`empty`), as well
+as a function to use to swap handlers (`swap`).
+
+Besides them, there are member functions to use both to connect and disconnect
+listeners in all their forms by means of a sink:
+
+```cpp
+void foo(int, char) { /* ... */ }
+
+struct listener {
+    void bar(const int &, char) { /* ... */ }
+};
+
+// ...
+
+entt::sink sink{signal};
+listener instance;
+
+sink.connect<&foo>();
+sink.connect<&listener::bar>(&instance);
+
+// ...
+
+// disconnects a free function
+sink.disconnect<&foo>();
+
+// disconnect a member function of an instance
+sink.disconnect<&listener::bar>(&instance);
+
+// disconnect all the member functions of an instance, if any
+sink.disconnect(&instance);
+
+// discards all the listeners at once
+sink.disconnect();
+```
+
+As shown above, the listeners don't have to strictly follow the signature of the
+signal. As long as a listener can be invoked with the given arguments to yield a
+result that is convertible to the given return type, everything works just
+fine.<br/>
+The `connect` member function returns by default a `connection` object to be
+used as an alternative to break a connection by means of its `release` member
+function. A `scoped_connection` can also be created from a connection. In this
+case, the link is broken automatically as soon as the object goes out of scope.
+
+Once listeners are attached (or even if there are no listeners at all), events
+and data in general can be published through a signal by means of the `publish`
+member function:
+
+```cpp
+signal.publish(42, 'c');
+```
+
+To collect data, the `collect` member function should be used instead. Below is
+a minimal example to show how to use it:
+
+```cpp
+int f() { return 0; }
+int g() { return 1; }
+
+// ...
+
+entt::sigh<int()> signal;
+entt::sink sink{signal};
+
+sink.connect<&f>();
+sink.connect<&g>();
+
+std::vector<int> vec{};
+signal.collect([&vec](int value) { vec.push_back(value); });
+
+assert(vec[0] == 0);
+assert(vec[1] == 1);
+```
+
+A collector must expose a function operator that accepts as an argument a type
+to which the return type of the listeners can be converted. Moreover, it can
+optionally return a boolean value that is true to stop collecting data, false
+otherwise. This way one can avoid calling all the listeners in case it isn't
+necessary.<br/>
+Functors can also be used in place of a lambda. Since the collector is copied
+when invoking the `collect` member function, `std::ref` is the way to go in this
+case:
+
+```cpp
+struct my_collector {
+    std::vector<int> vec{};
+
+    bool operator()(int v) noexcept {
+        vec.push_back(v);
+        return true;
+    }
+};
+
+// ...
+
+my_collector collector;
+signal.collect(std::ref(collector));
+```
 
 # Event dispatcher
 
@@ -292,8 +295,7 @@ the `connect` member function of the sink in charge for the specific event:
 struct an_event { int value; };
 struct another_event {};
 
-struct listener
-{
+struct listener {
     void receive(const an_event &) { /* ... */ }
     void method(const another_event &) { /* ... */ }
 };
@@ -306,11 +308,11 @@ dispatcher.sink<another_event>().connect<&listener::method>(&listener);
 ```
 
 The `disconnect` member function follows the same pattern and can be used to
-selectively remove listeners:
+remove one listener at a time or all of them at once:
 
 ```cpp
 dispatcher.sink<an_event>().disconnect<&listener::receive>(&listener);
-dispatcher.sink<another_event>().disconnect<&listener::method>(&listener);
+dispatcher.sink<another_event>().disconnect(&listener);
 ```
 
 The `trigger` member function serves the purpose of sending an immediate event

@@ -16,7 +16,7 @@ endif()
 # Project configuration
 #
 
-project(EnTT VERSION 3.0.0)
+project(EnTT VERSION 3.1.0)
 
 include(GNUInstallDirs)
 
@@ -52,7 +52,7 @@ if(NOT MSVC AND USE_LIBCPP)
 
     check_cxx_source_compiles("
         #include<type_traits>
-        int main() { return std::is_same<int, int>::value ? 0 : 1; }
+        int main() { return std::is_same_v<int, int> ? 0 : 1; }
     " HAS_LIBCPP)
 
     if(NOT HAS_LIBCPP)
@@ -187,6 +187,7 @@ if(BUILD_TESTING)
     endif()
 
     option(BUILD_BENCHMARK "Build benchmark." OFF)
+    option(BUILD_LIB "Build lib example." OFF)
     option(BUILD_MOD "Build mod example." OFF)
     option(BUILD_SNAPSHOT "Build snapshot example." OFF)
 
@@ -217,6 +218,7 @@ add_custom_target(
     SOURCES
         appveyor.yml
         AUTHORS
+        CONTRIBUTING.md
         LICENSE
         README.md
         TODO

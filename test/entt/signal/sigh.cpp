@@ -11,39 +11,9 @@ struct sigh_listener {
 
     void i() {}
     // useless definition just because msvc does weird things if both are empty
-    void l() { k = k ? true : false; }
+    void l() { k = k && k; }
 
     bool k{false};
-};
-
-template<typename Ret>
-struct test_collect_all {
-    std::vector<Ret> vec{};
-    static int f() { return 42; }
-    static int g() { return 3; }
-    bool operator()(Ret r) noexcept {
-        vec.push_back(r);
-        return true;
-    }
-};
-
-template<>
-struct test_collect_all<void> {
-    std::vector<int> vec{};
-    static void h() {}
-    bool operator()() noexcept {
-        return true;
-    }
-};
-
-template<typename Ret>
-struct test_collect_first {
-    std::vector<Ret> vec{};
-    static int f() { return 42; }
-    bool operator()(Ret r) noexcept {
-        vec.push_back(r);
-        return false;
-    }
 };
 
 struct const_nonconst_noexcept {
@@ -71,25 +41,37 @@ TEST(SigH, Lifetime) {
 
 TEST(SigH, Clear) {
     entt::sigh<void(int &)> sigh;
-    sigh.sink().connect<&sigh_listener::f>();
+    entt::sink sink{sigh};
 
+    sink.connect<&sigh_listener::f>();
+
+    ASSERT_FALSE(sink.empty());
     ASSERT_FALSE(sigh.empty());
 
-    sigh.sink().disconnect();
+    sink.disconnect();
 
+    ASSERT_TRUE(sink.empty());
     ASSERT_TRUE(sigh.empty());
 }
 
 TEST(SigH, Swap) {
     entt::sigh<void(int &)> sigh1;
     entt::sigh<void(int &)> sigh2;
+    entt::sink sink1{sigh1};
+    entt::sink sink2{sigh2};
 
-    sigh1.sink().connect<&sigh_listener::f>();
+    sink1.connect<&sigh_listener::f>();
+
+    ASSERT_FALSE(sink1.empty());
+    ASSERT_TRUE(sink2.empty());
 
     ASSERT_FALSE(sigh1.empty());
     ASSERT_TRUE(sigh2.empty());
 
     std::swap(sigh1, sigh2);
+
+    ASSERT_TRUE(sink1.empty());
+    ASSERT_FALSE(sink2.empty());
 
     ASSERT_TRUE(sigh1.empty());
     ASSERT_FALSE(sigh2.empty());
@@ -97,110 +79,225 @@ TEST(SigH, Swap) {
 
 TEST(SigH, Functions) {
     entt::sigh<void(int &)> sigh;
+    entt::sink sink{sigh};
     int v = 0;
 
-    sigh.sink().connect<&sigh_listener::f>();
+    sink.connect<&sigh_listener::f>();
     sigh.publish(v);
 
     ASSERT_FALSE(sigh.empty());
-    ASSERT_EQ(static_cast<entt::sigh<bool(int)>::size_type>(1), sigh.size());
+    ASSERT_EQ(static_cast<entt::sigh<void(int &)>::size_type>(1), sigh.size());
     ASSERT_EQ(42, v);
 
     v = 0;
-    sigh.sink().disconnect<&sigh_listener::f>();
+    sink.disconnect<&sigh_listener::f>();
     sigh.publish(v);
 
     ASSERT_TRUE(sigh.empty());
-    ASSERT_EQ(static_cast<entt::sigh<bool(int)>::size_type>(0), sigh.size());
+    ASSERT_EQ(static_cast<entt::sigh<void(int &)>::size_type>(0), sigh.size());
     ASSERT_EQ(v, 0);
 
-    sigh.sink().connect<&sigh_listener::f>();
-}
+    sink.connect<&sigh_listener::f>();
+
+    ASSERT_FALSE(sigh.empty());
+    ASSERT_EQ(static_cast<entt::sigh<void(int &)>::size_type>(1), sigh.size());
+
+    sink.disconnect(nullptr);
+
+    ASSERT_TRUE(sigh.empty());
+    ASSERT_EQ(static_cast<entt::sigh<void(int &)>::size_type>(0), sigh.size());}
 
 TEST(SigH, Members) {
-    sigh_listener s;
-    sigh_listener *ptr = &s;
+    sigh_listener l1, l2;
     entt::sigh<bool(int)> sigh;
+    entt::sink sink{sigh};
 
-    sigh.sink().connect<&sigh_listener::g>(ptr);
+    sink.connect<&sigh_listener::g>(&l1);
     sigh.publish(42);
 
-    ASSERT_TRUE(s.k);
+    ASSERT_TRUE(l1.k);
     ASSERT_FALSE(sigh.empty());
     ASSERT_EQ(static_cast<entt::sigh<bool(int)>::size_type>(1), sigh.size());
 
-    sigh.sink().disconnect<&sigh_listener::g>(ptr);
+    sink.disconnect<&sigh_listener::g>(&l1);
     sigh.publish(42);
 
-    ASSERT_TRUE(s.k);
+    ASSERT_TRUE(l1.k);
     ASSERT_TRUE(sigh.empty());
     ASSERT_EQ(static_cast<entt::sigh<bool(int)>::size_type>(0), sigh.size());
 
-    sigh.sink().connect<&sigh_listener::g>(ptr);
-    sigh.sink().connect<&sigh_listener::h>(ptr);
+    sink.connect<&sigh_listener::g>(&l1);
+    sink.connect<&sigh_listener::h>(&l2);
 
     ASSERT_FALSE(sigh.empty());
     ASSERT_EQ(static_cast<entt::sigh<bool(int)>::size_type>(2), sigh.size());
 
-    sigh.sink().disconnect<&sigh_listener::g>(ptr);
-    sigh.sink().disconnect<&sigh_listener::h>(ptr);
+    sink.disconnect(&l1);
 
-    ASSERT_TRUE(sigh.empty());
-    ASSERT_EQ(static_cast<entt::sigh<bool(int)>::size_type>(0), sigh.size());
+    ASSERT_FALSE(sigh.empty());
+    ASSERT_EQ(static_cast<entt::sigh<bool(int)>::size_type>(1), sigh.size());
 }
 
 TEST(SigH, Collector) {
-    entt::sigh<void(), test_collect_all<void>> sigh_void;
+    sigh_listener listener;
+    entt::sigh<bool(int)> sigh;
+    entt::sink sink{sigh};
+    int cnt = 0;
 
-    sigh_void.sink().connect<&test_collect_all<void>::h>();
-    auto collector_void = sigh_void.collect();
+    sink.connect<&sigh_listener::g>(&listener);
+    sink.connect<&sigh_listener::h>(&listener);
 
-    ASSERT_FALSE(sigh_void.empty());
-    ASSERT_TRUE(collector_void.vec.empty());
+    listener.k = true;
+    sigh.collect([&listener, &cnt](bool value) {
+        ASSERT_TRUE(value);
+        listener.k = true;
+        ++cnt;
+    }, 42);
 
-    entt::sigh<int(), test_collect_all<int>> sigh_all;
+    ASSERT_FALSE(sigh.empty());
+    ASSERT_EQ(cnt, 2);
 
-    sigh_all.sink().connect<&test_collect_all<int>::f>();
-    sigh_all.sink().connect<&test_collect_all<int>::f>();
-    sigh_all.sink().connect<&test_collect_all<int>::g>();
-    auto collector_all = sigh_all.collect();
+    cnt = 0;
+    sigh.collect([&cnt](bool value) {
+        // gtest and its macro hell are sometimes really annoying...
+        [](auto v) { ASSERT_TRUE(v); }(value);
+        ++cnt;
+        return true;
+    }, 42);
 
-    ASSERT_FALSE(sigh_all.empty());
-    ASSERT_FALSE(collector_all.vec.empty());
-    ASSERT_EQ(static_cast<std::vector<int>::size_type>(2), collector_all.vec.size());
-    ASSERT_EQ(42, collector_all.vec[0]);
-    ASSERT_EQ(3, collector_all.vec[1]);
+    ASSERT_EQ(cnt, 1);
+}
 
-    entt::sigh<int(), test_collect_first<int>> sigh_first;
+TEST(SigH, CollectorVoid) {
+    sigh_listener listener;
+    entt::sigh<void(int)> sigh;
+    entt::sink sink{sigh};
+    int cnt = 0;
 
-    sigh_first.sink().connect<&test_collect_first<int>::f>();
-    sigh_first.sink().connect<&test_collect_first<int>::f>();
-    auto collector_first = sigh_first.collect();
+    sink.connect<&sigh_listener::g>(&listener);
+    sink.connect<&sigh_listener::h>(&listener);
+    sigh.collect([&cnt]() { ++cnt; }, 42);
 
-    ASSERT_FALSE(sigh_first.empty());
-    ASSERT_FALSE(collector_first.vec.empty());
-    ASSERT_EQ(static_cast<std::vector<int>::size_type>(1), collector_first.vec.size());
-    ASSERT_EQ(42, collector_first.vec[0]);
+    ASSERT_FALSE(sigh.empty());
+    ASSERT_EQ(cnt, 2);
+
+    cnt = 0;
+    sigh.collect([&cnt]() {
+        ++cnt;
+        return true;
+    }, 42);
+
+    ASSERT_EQ(cnt, 1);
+}
+
+TEST(SigH, Connection) {
+    entt::sigh<void(int &)> sigh;
+    entt::sink sink{sigh};
+    int v = 0;
+
+    auto conn = sink.connect<&sigh_listener::f>();
+    sigh.publish(v);
+
+    ASSERT_FALSE(sigh.empty());
+    ASSERT_TRUE(conn);
+    ASSERT_EQ(42, v);
+
+    v = 0;
+    conn.release();
+    sigh.publish(v);
+
+    ASSERT_TRUE(sigh.empty());
+    ASSERT_FALSE(conn);
+    ASSERT_EQ(0, v);
+}
+
+TEST(SigH, ScopedConnection) {
+    sigh_listener listener;
+    entt::sigh<void(int)> sigh;
+    entt::sink sink{sigh};
+
+    {
+        ASSERT_FALSE(listener.k);
+
+        entt::scoped_connection conn = sink.connect<&sigh_listener::g>(&listener);
+        sigh.publish(42);
+
+        ASSERT_FALSE(sigh.empty());
+        ASSERT_TRUE(listener.k);
+        ASSERT_TRUE(conn);
+    }
+
+    sigh.publish(42);
+
+    ASSERT_TRUE(sigh.empty());
+    ASSERT_TRUE(listener.k);
+}
+
+TEST(SigH, ScopedConnectionConstructorsAndOperators) {
+    sigh_listener listener;
+    entt::sigh<void(int)> sigh;
+    entt::sink sink{sigh};
+    entt::scoped_connection conn;
+
+    {
+        ASSERT_FALSE(listener.k);
+        ASSERT_FALSE(conn);
+
+        entt::scoped_connection inner{};
+        inner = sink.connect<&sigh_listener::g>(&listener);
+        sigh.publish(42);
+
+        ASSERT_FALSE(sigh.empty());
+        ASSERT_TRUE(listener.k);
+        ASSERT_TRUE(inner);
+
+        inner.release();
+
+        ASSERT_TRUE(sigh.empty());
+        ASSERT_FALSE(inner);
+
+        auto basic = sink.connect<&sigh_listener::g>(&listener);
+        inner = std::as_const(basic);
+        sigh.publish(42);
+
+        ASSERT_FALSE(sigh.empty());
+        ASSERT_FALSE(listener.k);
+        ASSERT_TRUE(inner);
+
+        conn = std::move(inner);
+
+        ASSERT_FALSE(inner);
+        ASSERT_TRUE(conn);
+    }
+
+    ASSERT_TRUE(conn);
+
+    conn.release();
+    sigh.publish(42);
+
+    ASSERT_TRUE(sigh.empty());
+    ASSERT_FALSE(listener.k);
 }
 
 TEST(SigH, ConstNonConstNoExcept) {
     entt::sigh<void()> sigh;
+    entt::sink sink{sigh};
     const_nonconst_noexcept functor;
     const const_nonconst_noexcept cfunctor;
 
-    sigh.sink().connect<&const_nonconst_noexcept::f>(&functor);
-    sigh.sink().connect<&const_nonconst_noexcept::g>(&functor);
-    sigh.sink().connect<&const_nonconst_noexcept::h>(&cfunctor);
-    sigh.sink().connect<&const_nonconst_noexcept::i>(&cfunctor);
+    sink.connect<&const_nonconst_noexcept::f>(&functor);
+    sink.connect<&const_nonconst_noexcept::g>(&functor);
+    sink.connect<&const_nonconst_noexcept::h>(&cfunctor);
+    sink.connect<&const_nonconst_noexcept::i>(&cfunctor);
     sigh.publish();
 
     ASSERT_EQ(functor.cnt, 2);
     ASSERT_EQ(cfunctor.cnt, 2);
 
-    sigh.sink().disconnect<&const_nonconst_noexcept::f>(&functor);
-    sigh.sink().disconnect<&const_nonconst_noexcept::g>(&functor);
-    sigh.sink().disconnect<&const_nonconst_noexcept::h>(&cfunctor);
-    sigh.sink().disconnect<&const_nonconst_noexcept::i>(&cfunctor);
+    sink.disconnect<&const_nonconst_noexcept::f>(&functor);
+    sink.disconnect<&const_nonconst_noexcept::g>(&functor);
+    sink.disconnect<&const_nonconst_noexcept::h>(&cfunctor);
+    sink.disconnect<&const_nonconst_noexcept::i>(&cfunctor);
     sigh.publish();
 
     ASSERT_EQ(functor.cnt, 2);

@@ -3,6 +3,7 @@
 #include <vector>
 #include <cereal/archives/json.hpp>
 #include <entt/entity/registry.hpp>
+#include <entt/entity/helper.hpp>
 
 struct position {
     float x;
@@ -15,7 +16,7 @@ struct timer {
 };
 
 struct relationship {
-    entt::registry<>::entity_type parent;
+    entt::entity parent;
 };
 
 template<typename Archive>
@@ -36,8 +37,8 @@ void serialize(Archive &archive, relationship &relationship) {
 TEST(Snapshot, Full) {
     std::stringstream storage;
 
-    entt::registry<> source;
-    entt::registry<> destination;
+    entt::registry source;
+    entt::registry destination;
 
     auto e0 = source.create();
     source.assign<position>(e0, 16.f, 16.f);
@@ -52,6 +53,7 @@ TEST(Snapshot, Full) {
 
     auto e3 = source.create();
     source.assign<timer>(e3, 1000, 100);
+    source.assign<entt::tag<"empty"_hs>>(e3);
 
     source.destroy(e2);
     auto v2 = source.current(e2);
@@ -60,12 +62,12 @@ TEST(Snapshot, Full) {
         // output finishes flushing its contents when it goes out of scope
         cereal::JSONOutputArchive output{storage};
         source.snapshot().entities(output).destroyed(output)
-                .component<position, timer, relationship>(output);
+                .component<position, timer, relationship, entt::tag<"empty"_hs>>(output);
     }
 
     cereal::JSONInputArchive input{storage};
     destination.loader().entities(input).destroyed(input)
-            .component<position, timer, relationship>(input);
+            .component<position, timer, relationship, entt::tag<"empty"_hs>>(input);
 
     ASSERT_TRUE(destination.valid(e0));
     ASSERT_TRUE(destination.has<position>(e0));
@@ -84,6 +86,7 @@ TEST(Snapshot, Full) {
 
     ASSERT_TRUE(destination.valid(e3));
     ASSERT_TRUE(destination.has<timer>(e3));
+    ASSERT_TRUE(destination.has<entt::tag<"empty"_hs>>(e3));
     ASSERT_EQ(destination.get<timer>(e3).duration, 1000);
     ASSERT_EQ(destination.get<timer>(e3).elapsed, 0);
 }
@@ -91,10 +94,10 @@ TEST(Snapshot, Full) {
 TEST(Snapshot, Continuous) {
     std::stringstream storage;
 
-    entt::registry<> source;
-    entt::registry<> destination;
+    entt::registry source;
+    entt::registry destination;
 
-    std::vector<entt::registry<>::entity_type> entities;
+    std::vector<entt::entity> entities;
     for(auto i = 0; i < 10; ++i) {
         entities.push_back(source.create());
     }
@@ -118,18 +121,19 @@ TEST(Snapshot, Continuous) {
     auto e3 = source.create();
     source.assign<timer>(e3, 1000, 1000);
     source.assign<relationship>(e3, e2);
+    source.assign<entt::tag<"empty"_hs>>(e3);
 
     {
         // output finishes flushing its contents when it goes out of scope
         cereal::JSONOutputArchive output{storage};
-        source.snapshot().entities(output).component<position, relationship, timer>(output);
+        source.snapshot().entities(output).component<position, relationship, timer, entt::tag<"empty"_hs>>(output);
     }
 
     cereal::JSONInputArchive input{storage};
-    entt::continuous_loader<entt::registry<>::entity_type> loader{destination};
+    entt::continuous_loader loader{destination};
     loader.entities(input)
             .component<position, relationship>(input, &relationship::parent)
-            .component<timer>(input);
+            .component<timer, entt::tag<"empty"_hs>>(input);
 
     ASSERT_FALSE(destination.valid(e0));
     ASSERT_TRUE(loader.has(e0));
@@ -178,4 +182,5 @@ TEST(Snapshot, Continuous) {
     ASSERT_EQ(destination.get<timer>(l3).elapsed, 0);
     ASSERT_TRUE(destination.has<relationship>(l3));
     ASSERT_EQ(destination.get<relationship>(l3).parent, l2);
+    ASSERT_TRUE(destination.has<entt::tag<"empty"_hs>>(l3));
 }

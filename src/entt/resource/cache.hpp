@@ -7,9 +7,9 @@
 #include <type_traits>
 #include <unordered_map>
 #include "../config/config.h"
-#include "../core/hashed_string.hpp"
 #include "handle.hpp"
 #include "loader.hpp"
+#include "fwd.hpp"
 
 
 namespace entt {
@@ -27,26 +27,22 @@ namespace entt {
  */
 template<typename Resource>
 class resource_cache {
-    using container_type = std::unordered_map<hashed_string::hash_type, std::shared_ptr<Resource>>;
+    using container_type = std::unordered_map<ENTT_ID_TYPE, std::shared_ptr<Resource>>;
 
 public:
     /*! @brief Unsigned integer type. */
     using size_type = typename container_type::size_type;
     /*! @brief Type of resources managed by a cache. */
-    using resource_type = typename hashed_string::hash_type;
+    using resource_type = ENTT_ID_TYPE;
 
     /*! @brief Default constructor. */
     resource_cache() = default;
 
-    /*! @brief Copying a cache isn't allowed. */
-    resource_cache(const resource_cache &) ENTT_NOEXCEPT = delete;
     /*! @brief Default move constructor. */
-    resource_cache(resource_cache &&) ENTT_NOEXCEPT = default;
+    resource_cache(resource_cache &&) = default;
 
-    /*! @brief Copying a cache isn't allowed. @return This cache. */
-    resource_cache & operator=(const resource_cache &) ENTT_NOEXCEPT = delete;
     /*! @brief Default move assignment operator. @return This cache. */
-    resource_cache & operator=(resource_cache &&) ENTT_NOEXCEPT = default;
+    resource_cache & operator=(resource_cache &&) = default;
 
     /**
      * @brief Number of resources managed by a cache.
@@ -86,24 +82,31 @@ public:
      * If the identifier is already present in the cache, this function does
      * nothing and the arguments are simply discarded.
      *
+     * @warning
+     * If the resource cannot be loaded correctly, the returned handle will be
+     * invalid and any use of it will result in undefined behavior.
+     *
      * @tparam Loader Type of loader to use to load the resource if required.
      * @tparam Args Types of arguments to use to load the resource if required.
      * @param id Unique resource identifier.
      * @param args Arguments to use to load the resource if required.
-     * @return True if the resource is ready to use, false otherwise.
+     * @return A handle for the given resource.
      */
     template<typename Loader, typename... Args>
-    bool load(const resource_type id, Args &&... args) {
+    resource_handle<Resource> load(const resource_type id, Args &&... args) {
         static_assert(std::is_base_of_v<resource_loader<Loader, Resource>, Loader>);
+        resource_handle<Resource> handle{};
 
-        bool loaded = true;
-
-        if(resources.find(id) == resources.cend()) {
-            std::shared_ptr<Resource> resource = Loader{}.get(std::forward<Args>(args)...);
-            loaded = (static_cast<bool>(resource) ? (resources[id] = std::move(resource), loaded) : false);
+        if(auto it = resources.find(id); it == resources.cend()) {
+            if(auto resource = Loader{}.get(std::forward<Args>(args)...); resource) {
+                resources[id] = resource;
+                handle = std::move(resource);
+            }
+        } else {
+            handle = it->second;
         }
 
-        return loaded;
+        return handle;
     }
 
     /**
@@ -119,14 +122,18 @@ public:
      * Arguments are forwarded directly to the loader in order to construct
      * properly the requested resource.
      *
+     * @warning
+     * If the resource cannot be loaded correctly, the returned handle will be
+     * invalid and any use of it will result in undefined behavior.
+     *
      * @tparam Loader Type of loader to use to load the resource.
      * @tparam Args Types of arguments to use to load the resource.
      * @param id Unique resource identifier.
      * @param args Arguments to use to load the resource.
-     * @return True if the resource is ready to use, false otherwise.
+     * @return A handle for the given resource.
      */
     template<typename Loader, typename... Args>
-    bool reload(const resource_type id, Args &&... args) {
+    resource_handle<Resource> reload(const resource_type id, Args &&... args) {
         return (discard(id), load<Loader>(id, std::forward<Args>(args)...));
     }
 
@@ -183,10 +190,43 @@ public:
      * @param id Unique resource identifier.
      */
     void discard(const resource_type id) ENTT_NOEXCEPT {
-        auto it = resources.find(id);
-
-        if(it != resources.end()) {
+        if(auto it = resources.find(id); it != resources.end()) {
             resources.erase(it);
+        }
+    }
+
+    /**
+     * @brief Iterates all resources.
+     *
+     * The function object is invoked for each element. It is provided with
+     * either the resource identifier, the resource handle or both of them.<br/>
+     * The signature of the function must be equivalent to one of the following
+     * forms:
+     *
+     * @code{.cpp}
+     * void(const resource_type);
+     * void(resource_handle<Resource>);
+     * void(const resource_type, resource_handle<Resource>);
+     * @endcode
+     *
+     * @tparam Func Type of the function object to invoke.
+     * @param func A valid function object.
+     */
+    template <typename Func>
+    void each(Func func) const {
+        auto begin = resources.begin();
+        auto end = resources.end();
+
+        while(begin != end) {
+            auto curr = begin++;
+
+            if constexpr(std::is_invocable_v<Func, resource_type>) {
+                func(curr->first);
+            } else if constexpr(std::is_invocable_v<Func, resource_handle<Resource>>) {
+                func(resource_handle{ curr->second });
+            } else {
+                func(curr->first, resource_handle{ curr->second });
+            }
         }
     }
 

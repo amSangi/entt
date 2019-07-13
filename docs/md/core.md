@@ -9,6 +9,7 @@
 * [Compile-time identifiers](#compile-time-identifiers)
 * [Runtime identifiers](#runtime-identifiers)
 * [Hashed strings](#hashed-strings)
+  * [Wide characters](wide-characters)
   * [Conflicts](#conflicts)
 * [Monostate](#monostate)
 <!--
@@ -103,7 +104,7 @@ Indeed it mostly depends on the flow of execution.
 
 # Hashed strings
 
-A hashed string is a zero overhead resource identifier. Users can use
+A hashed string is a zero overhead unique identifier. Users can use
 human-readable identifiers in the codebase while using their numeric
 counterparts at runtime, thus without affecting performance.<br/>
 The class has an implicit `constexpr` constructor that chews a bunch of
@@ -130,6 +131,22 @@ more user-friendly:
 constexpr auto str = "text"_hs;
 ```
 
+## Wide characters
+
+The hashed string has a design that is close to that of an `std::basic_string`.
+It means that `hashed_string` is nothing more than an alias for
+`basic_hashed_string<char>`. For those who want to use the C++ type for wide
+character representation, there exists also the alias `hashed_wstring` for
+`basic_hashed_string<wchar_t>`.<br/>
+In this case, the user defined literal to use to create hashed strings on the
+fly is `_hws`:
+
+```cpp
+constexpr auto str = "text"_hws;
+```
+
+Note that the hash type of the `hashed_wstring` is the same of its counterpart.
+
 ## Conflicts
 
 The hashed string class uses internally FNV-1a to compute the numeric
@@ -138,7 +155,7 @@ possible. This is a fact.<br/>
 There is no silver bullet to solve the problem of conflicts when dealing with
 hashing functions. In this case, the best solution seemed to be to give up.
 That's all.<br/>
-After all, human-readable resource identifiers aren't something strictly defined
+After all, human-readable unique identifiers aren't something strictly defined
 and over which users have not the control. Choosing a slightly different
 identifier is probably the best solution to make the conflict disappear in this
 case.

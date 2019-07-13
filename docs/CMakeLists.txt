@@ -24,15 +24,15 @@ install(
 add_custom_target(
     docs_aob
     SOURCES
-        CONTRIBUTING.md
-        core.md
-        entity.md
-        links.md
-        locator.md
-        meta.md
-        process.md
-        resource.md
-        shared.md
-        signal.md
-        extra.dox
+        dox/extra.dox
+        md/core.md
+        md/entity.md
+        md/faq.md
+        md/lib.md
+        md/links.md
+        md/locator.md
+        md/meta.md
+        md/process.md
+        md/resource.md
+        md/signal.md
 )

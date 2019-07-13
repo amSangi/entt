@@ -8,6 +8,7 @@
 #include "../config/config.h"
 #include "registry.hpp"
 #include "entity.hpp"
+#include "fwd.hpp"
 
 
 namespace entt {
@@ -22,27 +23,30 @@ namespace entt {
  * @tparam Entity A valid entity type (see entt_traits for more details).
  */
 template<typename Entity>
-struct actor {
+struct basic_actor {
     /*! @brief Type of registry used internally. */
-    using registry_type = registry<Entity>;
+    using registry_type = basic_registry<Entity>;
     /*! @brief Underlying entity identifier. */
     using entity_type = Entity;
 
+    basic_actor() ENTT_NOEXCEPT
+        : reg{nullptr}, entt{entt::null}
+    {}
+
     /**
      * @brief Constructs an actor by using the given registry.
-     * @param reg An entity-component system properly initialized.
+     * @param ref An entity-component system properly initialized.
      */
-    actor(registry_type &reg)
-        : reg{&reg}, entt{reg.create()}
+    explicit basic_actor(registry_type &ref)
+        : reg{&ref}, entt{ref.create()}
     {}
 
     /*! @brief Default destructor. */
-    virtual ~actor() {
-        reg->destroy(entt);
+    virtual ~basic_actor() {
+        if(*this) {
+            reg->destroy(entt);
+        }
     }
-
-    /*! @brief Copying an actor isn't allowed. */
-    actor(const actor &) = delete;
 
     /**
      * @brief Move constructor.
@@ -53,14 +57,11 @@ struct actor {
      *
      * @param other The instance to move from.
      */
-    actor(actor &&other)
+    basic_actor(basic_actor &&other)
         : reg{other.reg}, entt{other.entt}
     {
         other.entt = null;
     }
-
-    /*! @brief Default copy assignment operator. @return This actor. */
-    actor & operator=(const actor &) = delete;
 
     /**
      * @brief Move assignment operator.
@@ -72,7 +73,7 @@ struct actor {
      * @param other The instance to move from.
      * @return This actor.
      */
-    actor & operator=(actor &&other) {
+    basic_actor & operator=(basic_actor &&other) {
         if(this != &other) {
             auto tmp{std::move(other)};
             std::swap(reg, tmp.reg);
@@ -97,7 +98,7 @@ struct actor {
      * @return A reference to the newly created component.
      */
     template<typename Component, typename... Args>
-    Component & assign(Args &&... args) {
+    decltype(auto) assign(Args &&... args) {
         return reg->template assign_or_replace<Component>(entt, std::forward<Args>(args)...);
     }
 
@@ -156,12 +157,12 @@ struct actor {
      * @brief Returns a reference to the underlying registry.
      * @return A reference to the underlying registry.
      */
-    inline const registry_type & backend() const ENTT_NOEXCEPT {
+    const registry_type & backend() const ENTT_NOEXCEPT {
         return *reg;
     }
 
     /*! @copydoc backend */
-    inline registry_type & backend() ENTT_NOEXCEPT {
+    registry_type & backend() ENTT_NOEXCEPT {
         return const_cast<registry_type &>(std::as_const(*this).backend());
     }
 
@@ -169,13 +170,21 @@ struct actor {
      * @brief Returns the entity associated with an actor.
      * @return The entity associated with the actor.
      */
-    inline entity_type entity() const ENTT_NOEXCEPT {
+    entity_type entity() const ENTT_NOEXCEPT {
         return entt;
+    }
+
+    /**
+     * @brief Checks if an actor refers to a valid entity or not.
+     * @return True if the actor refers to a valid entity, false otherwise.
+     */
+    explicit operator bool() const ENTT_NOEXCEPT {
+        return reg && reg->valid(entt);
     }
 
 private:
     registry_type *reg;
-    Entity entt;
+    entity_type entt;
 };
 
 

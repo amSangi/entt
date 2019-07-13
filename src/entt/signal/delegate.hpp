@@ -2,7 +2,9 @@
 #define ENTT_SIGNAL_DELEGATE_HPP
 
 
-#include <cassert>
+#include <tuple>
+#include <cstring>
+#include <utility>
 #include <algorithm>
 #include <functional>
 #include <type_traits>
@@ -25,16 +27,34 @@ template<typename Ret, typename... Args>
 auto to_function_pointer(Ret(*)(Args...)) -> Ret(*)(Args...);
 
 
-template<typename Ret, typename... Args, typename Type, typename Value>
-auto to_function_pointer(Ret(*)(Type, Args...), Value) -> Ret(*)(Args...);
+template<typename Ret, typename... Args, typename Type, typename Payload, typename = std::enable_if_t<std::is_convertible_v<Payload *, Type *>>>
+auto to_function_pointer(Ret(*)(Type *, Args...), Payload *) -> Ret(*)(Args...);
 
 
 template<typename Class, typename Ret, typename... Args>
-auto to_function_pointer(Ret(Class:: *)(Args...), Class *) -> Ret(*)(Args...);
+auto to_function_pointer(Ret(Class:: *)(Args...), const Class *) -> Ret(*)(Args...);
 
 
 template<typename Class, typename Ret, typename... Args>
-auto to_function_pointer(Ret(Class:: *)(Args...) const, Class *) -> Ret(*)(Args...);
+auto to_function_pointer(Ret(Class:: *)(Args...) const, const Class *) -> Ret(*)(Args...);
+
+
+template<typename Class, typename Type>
+auto to_function_pointer(Type Class:: *, const Class *) -> Type(*)();
+
+
+template<typename>
+struct function_extent;
+
+
+template<typename Ret, typename... Args>
+struct function_extent<Ret(*)(Args...)> {
+    static constexpr auto value = sizeof...(Args);
+};
+
+
+template<typename Func>
+constexpr auto function_extent_v = function_extent<Func>::value;
 
 
 }
@@ -53,7 +73,7 @@ struct connect_arg_t {};
 
 /*! @brief Constant of type connect_arg_t used to disambiguate calls. */
 template<auto Func>
-inline static connect_arg_t<Func> connect_arg{};
+constexpr connect_arg_t<Func> connect_arg{};
 
 
 /**
@@ -73,16 +93,45 @@ class delegate;
  * in charge of disconnecting instances before deleting them.
  *
  * A delegate can be used as general purpose invoker with no memory overhead for
- * free functions and members provided along with an instance on which to invoke
- * them. It comes also with limited support for curried functions.
+ * free functions (with or without payload) and members provided along with an
+ * instance on which to invoke them.
  *
  * @tparam Ret Return type of a function type.
  * @tparam Args Types of arguments of a function type.
  */
 template<typename Ret, typename... Args>
 class delegate<Ret(Args...)> {
-    using storage_type = std::aligned_storage_t<sizeof(void *), alignof(void *)>;
-    using proto_fn_type = Ret(storage_type &, Args...);
+    using proto_fn_type = Ret(const void *, std::tuple<Args &&...>);
+
+    template<auto Function, std::size_t... Index>
+    void connect(std::index_sequence<Index...>) ENTT_NOEXCEPT {
+        data = nullptr;
+
+        fn = [](const void *, std::tuple<Args &&...> args) -> Ret {
+            // Ret(...) makes void(...) eat the return values to avoid errors
+            static_assert(std::is_invocable_r_v<Ret, decltype(Function), std::tuple_element_t<Index, std::tuple<Args...>>...>);
+            return Ret(std::invoke(Function, std::forward<std::tuple_element_t<Index, std::tuple<Args...>>>(std::get<Index>(args))...));
+        };
+    }
+
+    template<auto Candidate, typename Type, std::size_t... Index>
+    void connect(Type *value_or_instance, std::index_sequence<Index...>) ENTT_NOEXCEPT {
+        data = value_or_instance;
+
+        fn = [](const void *payload, std::tuple<Args &&...> args) -> Ret {
+            Type *curr = nullptr;
+
+            if constexpr(std::is_const_v<Type>) {
+                curr = static_cast<Type *>(payload);
+            } else {
+                curr = static_cast<Type *>(const_cast<void *>(payload));
+            }
+
+            // Ret(...) makes void(...) eat the return values to avoid errors
+            static_assert(std::is_invocable_r_v<Ret, decltype(Candidate), Type *, std::tuple_element_t<Index, std::tuple<Args...>>...>);
+            return Ret(std::invoke(Candidate, curr, std::forward<std::tuple_element_t<Index, std::tuple<Args...>>>(std::get<Index>(args))...));
+        };
+    }
 
 public:
     /*! @brief Function type of the delegate. */
@@ -90,10 +139,8 @@ public:
 
     /*! @brief Default constructor. */
     delegate() ENTT_NOEXCEPT
-        : storage{}, fn{nullptr}
-    {
-        new (&storage) void *{nullptr};
-    }
+        : fn{nullptr}, data{nullptr}
+    {}
 
     /**
      * @brief Constructs a delegate and connects a free function to it.
@@ -108,31 +155,16 @@ public:
 
     /**
      * @brief Constructs a delegate and connects a member for a given instance
-     * or a curried free function to it.
-     * @tparam Candidate Member or curried free function to connect to the
-     * delegate.
-     * @tparam Type Type of class to which the member belongs or type of value
-     * used for currying.
-     * @param value_or_instance A valid pointer to an instance of class type or
-     * the value to use for currying.
+     * or a free function with payload.
+     * @tparam Candidate Member or free function to connect to the delegate.
+     * @tparam Type Type of class or type of payload.
+     * @param value_or_instance A valid pointer that fits the purpose.
      */
     template<auto Candidate, typename Type>
-    delegate(connect_arg_t<Candidate>, Type value_or_instance) ENTT_NOEXCEPT
+    delegate(connect_arg_t<Candidate>, Type *value_or_instance) ENTT_NOEXCEPT
         : delegate{}
     {
         connect<Candidate>(value_or_instance);
-    }
-
-    /**
-     * @brief Constructs a delegate and connects a lambda or a functor to it.
-     * @tparam Invokable Type of lambda or functor to connect.
-     * @param invokable A valid instance of the given type.
-     */
-    template<typename Invokable>
-    delegate(Invokable invokable) ENTT_NOEXCEPT
-        : delegate{}
-    {
-        connect(std::move(invokable));
     }
 
     /**
@@ -141,66 +173,29 @@ public:
      */
     template<auto Function>
     void connect() ENTT_NOEXCEPT {
-        static_assert(std::is_invocable_r_v<Ret, decltype(Function), Args...>);
-        new (&storage) void *{nullptr};
-
-        fn = [](storage_type &, Args... args) -> Ret {
-            return std::invoke(Function, args...);
-        };
+        constexpr auto extent = internal::function_extent_v<decltype(internal::to_function_pointer(std::declval<decltype(Function)>()))>;
+        connect<Function>(std::make_index_sequence<extent>{});
     }
 
     /**
-     * @brief Connects a member for a given instance or a curried free function
-     * to a delegate.
+     * @brief Connects a member function for a given instance or a free function
+     * with payload to a delegate.
      *
-     * When used to connect a member, the delegate isn't responsible for the
-     * connected object. Users must guarantee that the lifetime of the instance
-     * overcomes the one of the delegate.<br/>
-     * When used to connect a curried free function, the linked value must be
-     * both trivially copyable and trivially destructible, other than such that
-     * its size is lower than or equal to the one of a `void *`. It means that
-     * all the primitive types are accepted as well as pointers. Moreover, the
-     * signature of the free function must be such that the value is the first
-     * argument before the ones used to define the delegate itself.
+     * The delegate isn't responsible for the connected object or the payload.
+     * Users must always guarantee that the lifetime of the instance overcomes
+     * the one  of the delegate.<br/>
+     * When used to connect a free function with payload, its signature must be
+     * such that the instance is the first argument before the ones used to
+     * define the delegate itself.
      *
-     * @tparam Candidate Member or curried free function to connect to the
-     * delegate.
-     * @tparam Type Type of class to which the member belongs or type of value
-     * used for currying.
-     * @param value_or_instance A valid pointer to an instance of class type or
-     * the value to use for currying.
+     * @tparam Candidate Member or free function to connect to the delegate.
+     * @tparam Type Type of class or type of payload.
+     * @param value_or_instance A valid pointer that fits the purpose.
      */
     template<auto Candidate, typename Type>
-    void connect(Type value_or_instance) ENTT_NOEXCEPT {
-        static_assert(sizeof(Type) <= sizeof(void *));
-        static_assert(std::is_trivially_copyable_v<Type>);
-        static_assert(std::is_trivially_destructible_v<Type>);
-        static_assert(std::is_invocable_r_v<Ret, decltype(Candidate), Type &, Args...>);
-        new (&storage) Type{value_or_instance};
-
-        fn = [](storage_type &storage, Args... args) -> Ret {
-            Type &value_or_instance = *reinterpret_cast<Type *>(&storage);
-            return std::invoke(Candidate, value_or_instance, args...);
-        };
-    }
-
-    /**
-     * @brief Connects a lambda or a functor to a delegate.
-     * @tparam Invokable Type of lambda or functor to connect.
-     * @param invokable A valid instance of the given type.
-     */
-    template<typename Invokable>
-    void connect(Invokable invokable) ENTT_NOEXCEPT {
-        static_assert(sizeof(Invokable) <= sizeof(void *));
-        static_assert(std::is_class_v<Invokable>);
-        static_assert(std::is_trivially_destructible_v<Invokable>);
-        static_assert(std::is_invocable_r_v<Ret, Invokable, Args...>);
-        new (&storage) Invokable{std::move(invokable)};
-
-        fn = [](storage_type &storage, Args... args) -> Ret {
-            Invokable &invokable = *reinterpret_cast<Invokable *>(&storage);
-            return std::invoke(invokable, args...);
-        };
+    void connect(Type *value_or_instance) ENTT_NOEXCEPT {
+        constexpr auto extent = internal::function_extent_v<decltype(internal::to_function_pointer(std::declval<decltype(Candidate)>(), std::declval<Type *>()))>;
+        connect<Candidate>(value_or_instance, std::make_index_sequence<extent>{});
     }
 
     /**
@@ -209,21 +204,16 @@ public:
      * After a reset, a delegate cannot be invoked anymore.
      */
     void reset() ENTT_NOEXCEPT {
-        new (&storage) void *{nullptr};
         fn = nullptr;
+        data = nullptr;
     }
 
     /**
-     * @brief Returns the instance linked to a delegate, if any.
-     *
-     * @warning
-     * Attempting to use an instance returned by a delegate that doesn't contain
-     * a pointer to a member results in undefined behavior.
-     *
-     * @return An opaque pointer to the instance linked to the delegate, if any.
+     * @brief Returns the instance or the payload linked to a delegate, if any.
+     * @return An opaque pointer to the underlying data.
      */
     const void * instance() const ENTT_NOEXCEPT {
-        return *reinterpret_cast<const void **>(&storage);
+        return data;
     }
 
     /**
@@ -241,8 +231,8 @@ public:
      * @return The value returned by the underlying function.
      */
     Ret operator()(Args... args) const {
-        assert(fn);
-        return fn(storage, args...);
+        ENTT_ASSERT(fn);
+        return fn(data, std::forward_as_tuple(std::forward<Args>(args)...));
     }
 
     /**
@@ -255,35 +245,27 @@ public:
     }
 
     /**
-     * @brief Checks if the connected functions differ.
-     *
-     * In case of members, the instances connected to the delegate are not
-     * verified by this operator. Use the `instance` member function instead.
-     *
+     * @brief Compares the contents of two delegates.
      * @param other Delegate with which to compare.
-     * @return False if the connected functions differ, true otherwise.
+     * @return False if the two contents differ, true otherwise.
      */
     bool operator==(const delegate<Ret(Args...)> &other) const ENTT_NOEXCEPT {
-        return fn == other.fn;
+        return fn == other.fn && data == other.data;
     }
 
 private:
-    mutable storage_type storage;
     proto_fn_type *fn;
+    const void *data;
 };
 
 
 /**
- * @brief Checks if the connected functions differ.
- *
- * In case of members, the instances connected to the delegate are not verified
- * by this operator. Use the `instance` member function instead.
- *
+ * @brief Compares the contents of two delegates.
  * @tparam Ret Return type of a function type.
  * @tparam Args Types of arguments of a function type.
  * @param lhs A valid delegate object.
  * @param rhs A valid delegate object.
- * @return True if the connected functions differ, false otherwise.
+ * @return True if the two contents differ, false otherwise.
  */
 template<typename Ret, typename... Args>
 bool operator!=(const delegate<Ret(Args...)> &lhs, const delegate<Ret(Args...)> &rhs) ENTT_NOEXCEPT {
@@ -292,7 +274,7 @@ bool operator!=(const delegate<Ret(Args...)> &lhs, const delegate<Ret(Args...)> 
 
 
 /**
- * @brief Deduction guideline.
+ * @brief Deduction guide.
  *
  * It allows to deduce the function type of the delegate directly from a
  * function provided to the constructor.
@@ -305,32 +287,17 @@ delegate(connect_arg_t<Function>) ENTT_NOEXCEPT
 
 
 /**
- * @brief Deduction guideline.
+ * @brief Deduction guide.
  *
  * It allows to deduce the function type of the delegate directly from a member
- * or a curried free function provided to the constructor.
+ * or a free function with payload provided to the constructor.
  *
- * @tparam Candidate Member or curried free function to connect to the delegate.
- * @tparam Type Type of class to which the member belongs or type of value used
- * for currying.
+ * @tparam Candidate Member or free function to connect to the delegate.
+ * @tparam Type Type of class or type of payload.
  */
 template<auto Candidate, typename Type>
-delegate(connect_arg_t<Candidate>, Type) ENTT_NOEXCEPT
--> delegate<std::remove_pointer_t<decltype(internal::to_function_pointer(Candidate, std::declval<Type>()))>>;
-
-
-/**
- * @brief Deduction guideline.
- *
- * It allows to deduce the function type of the delegate directly from a lambda
- * or a functor provided to the constructor.
- *
- * @tparam Invokable Type of lambda or functor to connect.
- * @param invokable A valid instance of the given type.
- */
-template<typename Invokable>
-delegate(Invokable invokable) ENTT_NOEXCEPT
--> delegate<std::remove_pointer_t<decltype(internal::to_function_pointer(&Invokable::operator(), &invokable))>>;
+delegate(connect_arg_t<Candidate>, Type *) ENTT_NOEXCEPT
+-> delegate<std::remove_pointer_t<decltype(internal::to_function_pointer(Candidate, std::declval<Type *>()))>>;
 
 
 }

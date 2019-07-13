@@ -1,7 +1,9 @@
+#include <type_traits>
 #include <gtest/gtest.h>
+#include <entt/core/hashed_string.hpp>
 #include <entt/resource/cache.hpp>
 
-struct resource { const int value; };
+struct resource { int value; };
 
 struct loader: entt::resource_loader<loader, resource> {
     std::shared_ptr<resource> load(int value) const {
@@ -15,7 +17,7 @@ struct broken_loader: entt::resource_loader<broken_loader, resource> {
     }
 };
 
-TEST(ResourceCache, Functionalities) {
+TEST(Resource, Functionalities) {
     entt::resource_cache<resource> cache;
 
     constexpr auto hs1 = entt::hashed_string{"res1"};
@@ -43,6 +45,7 @@ TEST(ResourceCache, Functionalities) {
     ASSERT_FALSE(cache.contains(hs2));
     ASSERT_EQ((*cache.handle(hs1)).value, 42);
 
+    ASSERT_TRUE(cache.load<loader>(hs1, 42));
     ASSERT_TRUE(cache.load<loader>(hs2, 42));
 
     ASSERT_NE(cache.size(), entt::resource_cache<resource>::size_type{});
@@ -81,5 +84,53 @@ TEST(ResourceCache, Functionalities) {
     ASSERT_TRUE(cache.empty());
 
     ASSERT_TRUE(cache.temp<loader>(42));
+    ASSERT_TRUE(cache.empty());
+
+    ASSERT_FALSE(entt::resource_handle<resource>{});
+    ASSERT_TRUE(std::is_copy_constructible_v<entt::resource_handle<resource>>);
+    ASSERT_TRUE(std::is_move_constructible_v<entt::resource_handle<resource>>);
+    ASSERT_TRUE(std::is_copy_assignable_v<entt::resource_handle<resource>>);
+    ASSERT_TRUE(std::is_move_assignable_v<entt::resource_handle<resource>>);
+}
+
+TEST(Resource, MutableHandle) {
+    entt::resource_cache<resource> cache;
+
+    constexpr auto hs = entt::hashed_string{"res"};
+    auto handle = cache.load<loader>(hs, 0);
+
+    ASSERT_TRUE(handle);
+
+    ++handle.get().value;
+    ++static_cast<resource &>(handle).value;
+    ++(*handle).value;
+    ++handle->value;
+
+    ASSERT_EQ(cache.handle(hs)->value, 4);
+}
+
+TEST(Resource, Each) {
+    entt::resource_cache<resource> cache;
+    cache.load<loader>("resource"_hs, 0);
+
+    cache.each([](entt::resource_handle<resource> res) {
+        ++res->value;
+    });
+
+    ASSERT_FALSE(cache.empty());
+    ASSERT_EQ(cache.handle("resource"_hs)->value, 1);
+
+    cache.each([](auto id, auto res) {
+        ASSERT_EQ(id, "resource"_hs);
+        ++res->value;
+    });
+
+    ASSERT_FALSE(cache.empty());
+    ASSERT_EQ(cache.handle("resource"_hs)->value, 2);
+
+    cache.each([&cache](entt::resource_cache<resource>::resource_type id) {
+        cache.discard(id);
+    });
+
     ASSERT_TRUE(cache.empty());
 }
