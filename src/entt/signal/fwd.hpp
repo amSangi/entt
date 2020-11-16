@@ -2,21 +2,30 @@
 #define ENTT_SIGNAL_FWD_HPP
 
 
-#include "../config/config.h"
-
-
 namespace entt {
 
 
-/*! @class delegate */
 template<typename>
 class delegate;
 
-/*! @class sink */
+
+class dispatcher;
+
+
+template<typename>
+class emitter;
+
+
+class connection;
+
+
+struct scoped_connection;
+
+
 template<typename>
 class sink;
 
-/*! @class sigh */
+
 template<typename>
 class sigh;
 
@@ -24,4 +33,4 @@ class sigh;
 }
 
 
-#endif // ENTT_SIGNAL_FWD_HPP
+#endif

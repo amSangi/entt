@@ -7,9 +7,11 @@ struct an_event {};
 struct another_event {};
 struct one_more_event {};
 
-ENTT_NAMED_TYPE(an_event)
-
 struct receiver {
+    static void forward(entt::dispatcher &dispatcher, an_event &event) {
+        dispatcher.enqueue(event);
+    }
+
     void receive(const an_event &) { ++cnt; }
     void reset() { cnt = 0; }
     int cnt{0};
@@ -23,7 +25,7 @@ TEST(Dispatcher, Functionalities) {
     dispatcher.enqueue<one_more_event>();
     dispatcher.update<one_more_event>();
 
-    dispatcher.sink<an_event>().connect<&receiver::receive>(&receiver);
+    dispatcher.sink<an_event>().connect<&receiver::receive>(receiver);
     dispatcher.trigger<an_event>();
     dispatcher.enqueue<an_event>();
 
@@ -39,15 +41,58 @@ TEST(Dispatcher, Functionalities) {
 
     ASSERT_EQ(receiver.cnt, 3);
 
+    dispatcher.enqueue<an_event>();
+    dispatcher.clear<an_event>();
+    dispatcher.update();
+
+    dispatcher.enqueue<an_event>();
+    dispatcher.clear();
+    dispatcher.update();
+
+    ASSERT_EQ(receiver.cnt, 3);
+
     receiver.reset();
 
     an_event event{};
 
-    dispatcher.sink<an_event>().disconnect<&receiver::receive>(&receiver);
+    dispatcher.sink<an_event>().disconnect<&receiver::receive>(receiver);
     dispatcher.trigger<an_event>();
     dispatcher.enqueue(event);
     dispatcher.update();
     dispatcher.trigger(std::as_const(event));
 
     ASSERT_EQ(receiver.cnt, 0);
+}
+
+TEST(Dispatcher, StopAndGo) {
+    entt::dispatcher dispatcher;
+    receiver receiver;
+
+    dispatcher.sink<an_event>().connect<&receiver::forward>(dispatcher);
+    dispatcher.sink<an_event>().connect<&receiver::receive>(receiver);
+
+    dispatcher.enqueue<an_event>();
+    dispatcher.update();
+
+    ASSERT_EQ(receiver.cnt, 1);
+
+    dispatcher.sink<an_event>().disconnect<&receiver::forward>(dispatcher);
+    dispatcher.update();
+
+    ASSERT_EQ(receiver.cnt, 2);
+}
+
+TEST(Dispatcher, OpaqueDisconnect) {
+    entt::dispatcher dispatcher;
+    receiver receiver;
+
+    dispatcher.sink<an_event>().connect<&receiver::receive>(receiver);
+    dispatcher.trigger<an_event>();
+
+    ASSERT_EQ(receiver.cnt, 1);
+
+    dispatcher.disconnect(receiver);
+    dispatcher.trigger<an_event>();
+
+    ASSERT_EQ(receiver.cnt, 1);
 }

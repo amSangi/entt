@@ -11,6 +11,9 @@
   * [How can I represent hierarchies with my components?](#how-can-i-represent-hierarchies-with-my-components)
   * [Custom entity identifiers: yay or nay?](#custom-entity-identifiers-yay-or-nay)
   * [Warning C4307: integral constant overflow](#warning-C4307-integral-constant-overflow)
+  * [Warning C4003: the min, the max and the macro](#warning-C4003-the-min-the-max-and-the-macro)
+  * [The standard and the non-copyable types](#the-standard-and-the-non-copyable-types)
+  * [Which functions trigger which signals](#which-functions-trigger-which-signals)
 <!--
 @endcond TURN_OFF_DOXYGEN
 -->
@@ -48,10 +51,15 @@ First of all, there are two things to do in a Windows project:
 * Set the [`_ITERATOR_DEBUG_LEVEL`](https://docs.microsoft.com/cpp/standard-library/iterator-debug-level)
   macro to 0. This will disable checked iterators and iterator debugging.
 
-Moreover, the macro `ENTT_DISABLE_ASSERT` should be defined to disable internal
-checks made by `EnTT` in debug. These are asserts introduced to help the users,
-but require to access to the underlying containers and therefore risk ruining
-the performance in some cases.
+Moreover, the macro `ENTT_ASSERT` should be redefined to disable internal checks
+made by `EnTT` in debug:
+
+```cpp
+#define ENTT_ASSERT(...) ((void)0)
+```
+
+These asserts are introduced to help the users but they require to access to the
+underlying containers and therefore risk ruining the performance in some cases.
 
 With these changes, debug performance should increase enough for most cases. If
 you want something more, you can can also switch to an optimization level `O0`
@@ -93,25 +101,21 @@ performance from this component.
 
 Custom entity identifiers are definitely a good idea in two cases at least:
 
-* If `std::uint32_t` isn't large enough as an underlying type.
+* If `std::uint32_t` is too large or isn't large enough for your purposes, since
+  this is the underlying type of `entt::entity`.
 * If you want to avoid conflicts when using multiple registries.
 
-These identifiers are nothing more than enum classes with some salt.<br/>
-To simplify the creation of new identifiers, `EnTT` provides the macro
-`ENTT_ENTITY_TYPE` that accepts two arguments:
-
-* The name you want to give to the new identifier (watch out for namespaces).
-* The underlying type to use (either `std::uint16_t`, `std::uint32_t`
-  or `std::uint64_t`).
-
-In fact, this is the definition of `entt::entity`:
+Identifiers can be defined through enum classes and custom types for which a
+specialization of `entt_traits` exists. For this purpose, `entt_traits` is also
+defined as a _sfinae-friendly_ class template.<br/>
+In fact, this is a definition equivalent to that of `entt::entity`:
 
 ```cpp
-ENTT_ENTITY_TYPE(entity, std::uint32_t)
+enum class entity: std::uint32_t {};
 ```
 
-The use of this macro is highly recommended, so as not to run into problems if
-the requirements for the identifiers should change in the future.
+In theory, integral types can also be used as entity identifiers, even though
+this may break in future and isn't recommended in general.
 
 ## Warning C4307: integral constant overflow
 
@@ -125,13 +129,9 @@ here is a workaround in the form of a macro:
 
 ```cpp
 #if defined(_MSC_VER)
-    #define HS(x)\
-        __pragma(warning(push))\
-        __pragma(warning(disable:4307))\
-        entt::hashed_string{#x}\
-        __pragma(warning(pop))
+#define HS(str) __pragma(warning(suppress:4307)) entt::hashed_string{str}
 #else
-    #define HS(x) entt::hashed_string{#x}
+#define HS(str) entt::hashed_string{str}
 #endif
 ```
 
@@ -142,3 +142,77 @@ constexpr auto identifier = HS("my/resource/identifier");
 ```
 
 Thanks to [huwpascoe](https://github.com/huwpascoe) for the courtesy.
+
+## Warning C4003: the min, the max and the macro
+
+On Windows, a header file defines two macros `min` and `max` which may result in
+conflicts with their counterparts in the standard library and therefore in
+errors during compilation.
+
+It's a pretty big problem but fortunately it's not a problem of `EnTT` and there
+is a fairly simple solution to it.<br/>
+It consists in defining the `NOMINMAX` macro before to include any other header
+so as to get rid of the extra definitions:
+
+```cpp
+#define NOMINMAX
+```
+
+Please refer to [this](https://github.com/skypjack/entt/issues/96) issue for
+more details.
+
+## The standard and the non-copyable types
+
+`EnTT` uses internally the trait `std::is_copy_constructible_v` to check if a
+component is actually copyable. This trait doesn't check if an object can
+actually be copied but only verifies if there is a copy constructor
+available.<br/>
+This can lead to surprising results due to some idiosyncrasies of the standard
+mainly related to the need to guarantee backward compatibility.
+
+For example, `std::vector` defines a copy constructor no matter if its value
+type is copyable or not. As a result, `std::is_copy_constructible_v` is true
+for the following specialization:
+
+```cpp
+struct type {
+    std::vector<std::unique_ptr<action>> vec;
+};
+```
+
+When trying to assign an instance of this type to an entity in the ECS part,
+this may trigger a compilation error because we cannot really make a copy of
+it.<br/>
+As a workaround, users can mark the type explicitly as non-copyable:
+
+```cpp
+struct type {
+    type(const type &) = delete;
+    type & operator=(const type &) = delete;
+
+    std::vector<std::unique_ptr<action>> vec;
+};
+```
+
+Unfortunately, this will also disable aggregate initialization.
+
+## Which functions trigger which signals
+
+The `registry` class offers three signals that are emitted following specific
+operations. Maybe not everyone knows what these operations are, though.<br/>
+If this isn't clear, below you can find a _vademecum_ for this purpose:
+
+* `on_created` is invoked when a component is first added (neither modified nor 
+  replaced) to an entity.
+* `on_update` is called whenever an existing component is modified or replaced.
+* `on_destroyed` is called when a component is explicitly or implicitly removed 
+  from an entity.
+
+Among the most controversial functions can be found `emplace_or_replace` and
+`destroy`. However, following the above rules, it's quite simple to know what 
+will happen.<br/>
+In the first case, `on_created` is invoked if the entity has not the component,
+otherwise the latter is replaced and therefore `on_update` is triggered. As for
+the second case, components are removed from their entities and thus freed when
+they are recycled. It means that `on_destroyed` is triggered for every component 
+owned by the entity that is destroyed.

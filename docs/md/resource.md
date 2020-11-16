@@ -42,7 +42,7 @@ struct my_resource { const int value; };
 ```
 
 A _loader_ is a class the aim of which is to load a specific resource. It has to
-inherit directly from the dedicated base class as in the following example:
+inherit directly from a dedicated base class as in the following example:
 
 ```cpp
 struct my_loader final: entt::resource_loader<my_loader, my_resource> {
@@ -76,11 +76,11 @@ Finally, a cache is a specialization of a class template tailored to a specific
 resource:
 
 ```cpp
-using my_resource_cache = entt::resource_cache<my_resource>;
+using my_cache = entt::resource_cache<my_resource>;
 
 // ...
 
-my_resource_cache cache{};
+my_cache cache{};
 ```
 
 The idea is to create different caches for different types of resources and to
@@ -105,21 +105,14 @@ cache.clear();
 
 Besides these member functions, a cache contains what is needed to load, use and
 discard resources of the given type.<br/>
-Before to explore this part of the interface, it makes sense to mention how
-resources are identified. The type of the identifiers to use is defined as:
+Before exploring this part of the interface, it makes sense to mention how
+resources are identified. They have type `id_type` and therefore they can be
+created explicitly as in the following example:
 
 ```cpp
-entt::resource_cache<resource>::resource_type
-```
-
-Where `resource_type` is an alias for `entt::hashed_string::hash_type`.
-Therefore, resource identifiers are created explicitly as in the following
-example:
-
-```cpp
-constexpr auto identifier = entt::resource_cache<resource>::resource_type{"my/resource/identifier"_hs};
+constexpr auto identifier = "my/resource/identifier"_hs;
 // this is equivalent to the following
-constexpr auto hs = entt::hashed_string{"my/resource/identifier"};
+constexpr entt::id_type hs = entt::hashed_string{"my/resource/identifier"};
 ```
 
 The class `hashed_string` is described in a dedicated section, so I won't go in
@@ -142,7 +135,7 @@ loaded. In case the loader returns an invalid pointer, the handle is invalid as
 well and therefore it can be easily used with an `if` statement:
 
 ```cpp
-if(auto handle = cache.load<my_loader>("another/identifier"_hs, 42); handle) {
+if(entt::resource_handle handle = cache.load<my_loader>("another/identifier"_hs, 42); handle) {
     // ...
 }
 ```
@@ -187,24 +180,24 @@ Users of a resource own a handle that guarantees that a resource isn't destroyed
 until all the handles are destroyed, even if the resource itself is removed from
 the cache.<br/>
 Handles are tiny objects both movable and copyable. They return the contained
-resource as a const reference on request:
+resource as a (possibly const) reference on request:
 
 * By means of the `get` member function:
 
   ```cpp
-  const auto &resource = handle.get();
+  auto &resource = handle.get();
   ```
 
 * Using the proper cast operator:
 
   ```cpp
-  const auto &resource = handle;
+  auto &resource = handle;
   ```
 
 * Through the dereference operator:
 
   ```cpp
-  const auto &resource = *handle;
+  auto &resource = *handle;
   ```
 
 The resource can also be accessed directly using the arrow operator if required:

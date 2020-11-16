@@ -4,8 +4,10 @@
 
 #include <type_traits>
 #include "../config/config.h"
-#include "../signal/sigh.hpp"
+#include "../core/type_traits.hpp"
+#include "../signal/delegate.hpp"
 #include "registry.hpp"
+#include "fwd.hpp"
 
 
 namespace entt {
@@ -13,13 +15,14 @@ namespace entt {
 
 /**
  * @brief Converts a registry to a view.
- * @tparam Const Constness of the accepted registry.
  * @tparam Entity A valid entity type (see entt_traits for more details).
  */
-template<bool Const, typename Entity>
+template<typename Entity>
 struct as_view {
+    /*! @brief Underlying entity identifier. */
+    using entity_type = std::remove_const_t<Entity>;
     /*! @brief Type of registry to convert. */
-    using registry_type = std::conditional_t<Const, const entt::basic_registry<Entity>, entt::basic_registry<Entity>>;
+    using registry_type = constness_as_t<basic_registry<entity_type>, Entity>;
 
     /**
      * @brief Constructs a converter for a given registry.
@@ -29,12 +32,13 @@ struct as_view {
 
     /**
      * @brief Conversion function from a registry to a view.
+     * @tparam Exclude Types of components used to filter the view.
      * @tparam Component Type of components used to construct the view.
      * @return A newly created view.
      */
-    template<typename... Component>
-    operator entt::basic_view<Entity, Component...>() const {
-        return reg.template view<Component...>();
+    template<typename Exclude, typename... Component>
+    operator basic_view<entity_type, Exclude, Component...>() const {
+        return reg.template view<Component...>(Exclude{});
     }
 
 private:
@@ -51,23 +55,24 @@ private:
  * @tparam Entity A valid entity type (see entt_traits for more details).
  */
 template<typename Entity>
-as_view(basic_registry<Entity> &) ENTT_NOEXCEPT -> as_view<false, Entity>;
+as_view(basic_registry<Entity> &) ENTT_NOEXCEPT -> as_view<Entity>;
 
 
 /*! @copydoc as_view */
 template<typename Entity>
-as_view(const basic_registry<Entity> &) ENTT_NOEXCEPT -> as_view<true, Entity>;
+as_view(const basic_registry<Entity> &) ENTT_NOEXCEPT -> as_view<const Entity>;
 
 
 /**
  * @brief Converts a registry to a group.
- * @tparam Const Constness of the accepted registry.
  * @tparam Entity A valid entity type (see entt_traits for more details).
  */
-template<bool Const, typename Entity>
+template<typename Entity>
 struct as_group {
+    /*! @brief Underlying entity identifier. */
+    using entity_type = std::remove_const_t<Entity>;
     /*! @brief Type of registry to convert. */
-    using registry_type = std::conditional_t<Const, const entt::basic_registry<Entity>, entt::basic_registry<Entity>>;
+    using registry_type = constness_as_t<basic_registry<entity_type>, Entity>;
 
     /**
      * @brief Constructs a converter for a given registry.
@@ -83,7 +88,7 @@ struct as_group {
      * @return A newly created group.
      */
     template<typename Exclude, typename Get, typename... Owned>
-    operator entt::basic_group<Entity, Exclude, Get, Owned...>() const {
+    operator basic_group<entity_type, Exclude, Get, Owned...>() const {
         return reg.template group<Owned...>(Get{}, Exclude{});
     }
 
@@ -101,106 +106,46 @@ private:
  * @tparam Entity A valid entity type (see entt_traits for more details).
  */
 template<typename Entity>
-as_group(basic_registry<Entity> &) ENTT_NOEXCEPT -> as_group<false, Entity>;
+as_group(basic_registry<Entity> &) ENTT_NOEXCEPT -> as_group<Entity>;
 
 
 /*! @copydoc as_group */
 template<typename Entity>
-as_group(const basic_registry<Entity> &) ENTT_NOEXCEPT -> as_group<true, Entity>;
+as_group(const basic_registry<Entity> &) ENTT_NOEXCEPT -> as_group<const Entity>;
+
 
 
 /**
- * @brief Dependency function prototype.
- *
- * A _dependency function_ is a built-in listener to use to automatically assign
- * components to an entity when a type has a dependency on some other types.
- *
- * This is a prototype function to use to create dependencies.<br/>
- * It isn't intended for direct use, although nothing forbids using it freely.
- *
+ * @brief Helper to create a listener that directly invokes a member function.
+ * @tparam Member Member function to invoke on a component of the given type.
  * @tparam Entity A valid entity type (see entt_traits for more details).
- * @tparam Dependency Types of components to assign to an entity if triggered.
- * @param reg A valid reference to a registry.
- * @param entt A valid entity identifier.
+ * @param reg A registry that contains the given entity and its components.
+ * @param entt Entity from which to get the component.
  */
-template<typename Entity, typename... Dependency>
-void dependency(basic_registry<Entity> &reg, const Entity entt) {
-    ((reg.template has<Dependency>(entt) ? void() : (reg.template assign<Dependency>(entt), void())), ...);
+template<auto Member, typename Entity = entity>
+void invoke(basic_registry<Entity> &reg, const Entity entt) {
+    static_assert(std::is_member_function_pointer_v<decltype(Member)>, "Invalid pointer to non-static member function");
+    delegate<void(basic_registry<Entity> &, const Entity)> func;
+    func.template connect<Member>(reg.template get<member_class_t<decltype(Member)>>(entt));
+    func(reg, entt);
 }
 
 
 /**
- * @brief Connects a dependency function to the given sink.
- *
- * A _dependency function_ is a built-in listener to use to automatically assign
- * components to an entity when a type has a dependency on some other types.
- *
- * The following adds components `a_type` and `another_type` whenever `my_type`
- * is assigned to an entity:
- * @code{.cpp}
- * entt::registry registry;
- * entt::connect<a_type, another_type>(registry.construction<my_type>());
- * @endcode
- *
- * @tparam Dependency Types of components to assign to an entity if triggered.
- * @tparam Component Type of component that triggers the dependency handler.
+ * @brief Returns the entity associated with a given component.
  * @tparam Entity A valid entity type (see entt_traits for more details).
- * @param sink A sink object properly initialized.
+ * @tparam Component Type of component.
+ * @param reg A registry that contains the given entity and its components.
+ * @param component A valid component instance.
+ * @return The entity associated with the given component.
  */
-template<typename... Dependency, typename Component, typename Entity>
-void connect(sink<void(basic_registry<Entity> &, const Entity, Component &)> sink) {
-    sink.template connect<dependency<Entity, Dependency...>>();
+template<typename Entity, typename Component>
+Entity to_entity(const basic_registry<Entity> &reg, const Component &component) {
+    return *(reg.template data<Component>() + (&component - reg.template raw<Component>()));
 }
-
-
-/**
- * @brief Disconnects a dependency function from the given sink.
- *
- * A _dependency function_ is a built-in listener to use to automatically assign
- * components to an entity when a type has a dependency on some other types.
- *
- * The following breaks the dependency between the component `my_type` and the
- * components `a_type` and `another_type`:
- * @code{.cpp}
- * entt::registry registry;
- * entt::disconnect<a_type, another_type>(registry.construction<my_type>());
- * @endcode
- *
- * @tparam Dependency Types of components used to create the dependency.
- * @tparam Component Type of component that triggers the dependency handler.
- * @tparam Entity A valid entity type (see entt_traits for more details).
- * @param sink A sink object properly initialized.
- */
-template<typename... Dependency, typename Component, typename Entity>
-void disconnect(sink<void(basic_registry<Entity> &, const Entity, Component &)> sink) {
-    sink.template disconnect<dependency<Entity, Dependency...>>();
-}
-
-
-/**
- * @brief Alias template to ease the assignment of tags to entities.
- *
- * If used in combination with hashed strings, it simplifies the assignment of
- * tags to entities and the use of tags in general where a type would be
- * required otherwise.<br/>
- * As an example and where the user defined literal for hashed strings hasn't
- * been changed:
- * @code{.cpp}
- * entt::registry registry;
- * registry.assign<entt::tag<"enemy"_hs>>(entity);
- * @endcode
- *
- * @note
- * Tags are empty components and therefore candidates for the empty component
- * optimization.
- *
- * @tparam Value The numeric representation of an instance of hashed string.
- */
-template<ENTT_ID_TYPE Value>
-using tag = std::integral_constant<ENTT_ID_TYPE, Value>;
 
 
 }
 
 
-#endif // ENTT_ENTITY_HELPER_HPP
+#endif

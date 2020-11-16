@@ -3,10 +3,11 @@
 
 
 #include <memory>
-#include <utility>
 #include <type_traits>
 #include <unordered_map>
+#include <utility>
 #include "../config/config.h"
+#include "../core/fwd.hpp"
 #include "handle.hpp"
 #include "loader.hpp"
 #include "fwd.hpp"
@@ -26,14 +27,11 @@ namespace entt {
  * @tparam Resource Type of resources managed by a cache.
  */
 template<typename Resource>
-class resource_cache {
-    using container_type = std::unordered_map<ENTT_ID_TYPE, std::shared_ptr<Resource>>;
-
-public:
+struct resource_cache {
     /*! @brief Unsigned integer type. */
-    using size_type = typename container_type::size_type;
+    using size_type = std::size_t;
     /*! @brief Type of resources managed by a cache. */
-    using resource_type = ENTT_ID_TYPE;
+    using resource_type = Resource;
 
     /*! @brief Default constructor. */
     resource_cache() = default;
@@ -48,7 +46,7 @@ public:
      * @brief Number of resources managed by a cache.
      * @return Number of resources currently stored.
      */
-    size_type size() const ENTT_NOEXCEPT {
+    [[nodiscard]] size_type size() const ENTT_NOEXCEPT {
         return resources.size();
     }
 
@@ -56,7 +54,7 @@ public:
      * @brief Returns true if a cache contains no resources, false otherwise.
      * @return True if the cache contains no resources, false otherwise.
      */
-    bool empty() const ENTT_NOEXCEPT {
+    [[nodiscard]] bool empty() const ENTT_NOEXCEPT {
         return resources.empty();
     }
 
@@ -93,20 +91,20 @@ public:
      * @return A handle for the given resource.
      */
     template<typename Loader, typename... Args>
-    resource_handle<Resource> load(const resource_type id, Args &&... args) {
-        static_assert(std::is_base_of_v<resource_loader<Loader, Resource>, Loader>);
-        resource_handle<Resource> handle{};
+    resource_handle<Resource> load(const id_type id, Args &&... args) {
+        static_assert(std::is_base_of_v<resource_loader<Loader, Resource>, Loader>, "Invalid loader type");
+        resource_handle<Resource> resource{};
 
         if(auto it = resources.find(id); it == resources.cend()) {
-            if(auto resource = Loader{}.get(std::forward<Args>(args)...); resource) {
-                resources[id] = resource;
-                handle = std::move(resource);
+            if(auto instance = Loader{}.get(std::forward<Args>(args)...); instance) {
+                resources[id] = instance;
+                resource = std::move(instance);
             }
         } else {
-            handle = it->second;
+            resource = it->second;
         }
 
-        return handle;
+        return resource;
     }
 
     /**
@@ -133,7 +131,7 @@ public:
      * @return A handle for the given resource.
      */
     template<typename Loader, typename... Args>
-    resource_handle<Resource> reload(const resource_type id, Args &&... args) {
+    resource_handle<Resource> reload(const id_type id, Args &&... args) {
         return (discard(id), load<Loader>(id, std::forward<Args>(args)...));
     }
 
@@ -150,7 +148,7 @@ public:
      * @return A handle for the given resource.
      */
     template<typename Loader, typename... Args>
-    resource_handle<Resource> temp(Args &&... args) const {
+    [[nodiscard]] resource_handle<Resource> temp(Args &&... args) const {
         return { Loader{}.get(std::forward<Args>(args)...) };
     }
 
@@ -167,7 +165,7 @@ public:
      * @param id Unique resource identifier.
      * @return A handle for the given resource.
      */
-    resource_handle<Resource> handle(const resource_type id) const {
+    [[nodiscard]] resource_handle<Resource> handle(const id_type id) const {
         auto it = resources.find(id);
         return { it == resources.end() ? nullptr : it->second };
     }
@@ -177,7 +175,7 @@ public:
      * @param id Unique resource identifier.
      * @return True if the cache contains the resource, false otherwise.
      */
-    bool contains(const resource_type id) const ENTT_NOEXCEPT {
+    [[nodiscard]] bool contains(const id_type id) const {
         return (resources.find(id) != resources.cend());
     }
 
@@ -189,7 +187,7 @@ public:
      *
      * @param id Unique resource identifier.
      */
-    void discard(const resource_type id) ENTT_NOEXCEPT {
+    void discard(const id_type id) {
         if(auto it = resources.find(id); it != resources.end()) {
             resources.erase(it);
         }
@@ -204,9 +202,9 @@ public:
      * forms:
      *
      * @code{.cpp}
-     * void(const resource_type);
-     * void(resource_handle<Resource>);
-     * void(const resource_type, resource_handle<Resource>);
+     * void(const entt::id_type);
+     * void(entt::resource_handle<Resource>);
+     * void(const entt::id_type, entt::resource_handle<Resource>);
      * @endcode
      *
      * @tparam Func Type of the function object to invoke.
@@ -220,7 +218,7 @@ public:
         while(begin != end) {
             auto curr = begin++;
 
-            if constexpr(std::is_invocable_v<Func, resource_type>) {
+            if constexpr(std::is_invocable_v<Func, id_type>) {
                 func(curr->first);
             } else if constexpr(std::is_invocable_v<Func, resource_handle<Resource>>) {
                 func(resource_handle{ curr->second });
@@ -231,11 +229,11 @@ public:
     }
 
 private:
-    container_type resources;
+    std::unordered_map<id_type, std::shared_ptr<Resource>> resources;
 };
 
 
 }
 
 
-#endif // ENTT_RESOURCE_CACHE_HPP
+#endif

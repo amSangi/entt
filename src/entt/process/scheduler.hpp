@@ -63,7 +63,7 @@ class scheduler {
 
         template<typename Proc, typename... Args>
         continuation then(Args &&... args) {
-            static_assert(std::is_base_of_v<process<Proc, Delta>, Proc>);
+            static_assert(std::is_base_of_v<process<Proc, Delta>, Proc>, "Invalid process type");
             auto proc = typename process_handler::instance_type{new Proc{std::forward<Args>(args)...}, &scheduler::deleter<Proc>};
             handler->next.reset(new process_handler{std::move(proc), &scheduler::update<Proc>, &scheduler::abort<Proc>, nullptr});
             handler = handler->next.get();
@@ -80,7 +80,7 @@ class scheduler {
     };
 
     template<typename Proc>
-    static bool update(process_handler &handler, const Delta delta, void *data) {
+    [[nodiscard]] static bool update(process_handler &handler, const Delta delta, void *data) {
         auto *process = static_cast<Proc *>(handler.instance.get());
         process->tick(delta, data);
 
@@ -111,10 +111,10 @@ class scheduler {
 
 public:
     /*! @brief Unsigned integer type. */
-    using size_type = typename std::vector<process_handler>::size_type;
+    using size_type = std::size_t;
 
     /*! @brief Default constructor. */
-    scheduler() ENTT_NOEXCEPT = default;
+    scheduler() = default;
 
     /*! @brief Default move constructor. */
     scheduler(scheduler &&) = default;
@@ -126,7 +126,7 @@ public:
      * @brief Number of processes currently scheduled.
      * @return Number of processes currently scheduled.
      */
-    size_type size() const ENTT_NOEXCEPT {
+    [[nodiscard]] size_type size() const ENTT_NOEXCEPT {
         return handlers.size();
     }
 
@@ -134,7 +134,7 @@ public:
      * @brief Returns true if at least a process is currently scheduled.
      * @return True if there are scheduled processes, false otherwise.
      */
-    bool empty() const ENTT_NOEXCEPT {
+    [[nodiscard]] bool empty() const ENTT_NOEXCEPT {
         return handlers.empty();
     }
 
@@ -175,7 +175,7 @@ public:
      */
     template<typename Proc, typename... Args>
     auto attach(Args &&... args) {
-        static_assert(std::is_base_of_v<process<Proc, Delta>, Proc>);
+        static_assert(std::is_base_of_v<process<Proc, Delta>, Proc>, "Invalid process type");
         auto proc = typename process_handler::instance_type{new Proc{std::forward<Args>(args)...}, &scheduler::deleter<Proc>};
         process_handler handler{std::move(proc), &scheduler::update<Proc>, &scheduler::abort<Proc>, nullptr};
         // forces the process to exit the uninitialized state
@@ -281,9 +281,9 @@ public:
         decltype(handlers) exec;
         exec.swap(handlers);
 
-        std::for_each(exec.begin(), exec.end(), [immediately](auto &handler) {
+        for(auto &&handler: exec) {
             handler.abort(handler, immediately);
-        });
+        }
 
         std::move(handlers.begin(), handlers.end(), std::back_inserter(exec));
         handlers.swap(exec);
@@ -297,4 +297,4 @@ private:
 }
 
 
-#endif // ENTT_PROCESS_SCHEDULER_HPP
+#endif
